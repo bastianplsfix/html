@@ -25,10 +25,11 @@
     "@std/assert": "jsr:@std/assert@^1.0.19"
   },
   "tasks": {
-    "check": "deno fmt --check && deno lint && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx && deno test --allow-read=docs/static/styles.css",
+    "check": "deno fmt --check && deno lint && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx && deno test --allow-read=docs/static/styles.css && deno test --config test/deno.dev.json test/dev_diagnostics.tsx",
     "docs": "deno serve --watch --allow-read=docs/static/styles.css docs/main.ts",
     "docs:start": "deno serve --allow-read=docs/static/styles.css docs/main.ts",
     "test": "deno test --allow-read=docs/static/styles.css",
+    "test:dev": "deno test --config test/deno.dev.json test/dev_diagnostics.tsx",
     "test:watch": "deno test --allow-read=docs/static/styles.css --watch"
   },
   "publish": {

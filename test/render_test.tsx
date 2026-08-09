@@ -192,7 +192,7 @@ Deno.test("spread attributes are validated at render time", async () => {
 
   await assertRejects(
     () => renderToString(view),
-    TypeError,
+    RenderError,
     "Invalid HTML attribute name",
   );
 });

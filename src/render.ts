@@ -47,6 +47,11 @@ interface ComponentFrame {
   readonly source?: SourceLocation;
 }
 
+interface ElementFrame {
+  readonly tagName: string;
+  readonly source?: SourceLocation;
+}
+
 /** An error enriched with the server-component path that produced it. */
 export class RenderError extends Error {
   readonly componentStack: readonly ComponentFrame[];
@@ -304,11 +309,56 @@ async function* renderElement(
   node: ElementNode,
   context: RenderContext,
 ): AsyncGenerator<string, void, void> {
-  assertValidTagName(node.tagName);
   const tagName = node.tagName;
   const children = node.props.children;
 
-  yield `<${tagName}`;
+  try {
+    yield serializeOpeningTag(node, context);
+  } catch (error) {
+    throw addElementFrame(error, {
+      tagName,
+      ...(node.source ? { source: node.source } : {}),
+    });
+  }
+
+  if (VOID_ELEMENTS.has(tagName.toLowerCase())) {
+    if (hasRenderableChildren(children)) {
+      throw addElementFrame(
+        new RenderError(`Void element <${tagName}> cannot have children.`),
+        {
+          tagName,
+          ...(node.source ? { source: node.source } : {}),
+        },
+      );
+    }
+    return;
+  }
+
+  if (RAW_TEXT_ELEMENTS.has(tagName.toLowerCase())) {
+    try {
+      yield* renderRawTextValue(children, context, tagName.toLowerCase());
+    } catch (error) {
+      if (context.signal?.aborted && error === context.signal.reason) {
+        throw error;
+      }
+      throw addElementFrame(error, {
+        tagName,
+        ...(node.source ? { source: node.source } : {}),
+      });
+    }
+  } else {
+    yield* renderValue(children, context);
+  }
+  yield `</${tagName}>`;
+}
+
+function serializeOpeningTag(
+  node: ElementNode,
+  context: RenderContext,
+): string {
+  assertValidTagName(node.tagName);
+  let openingTag = `<${node.tagName}`;
+
   for (const [name, value] of Object.entries(node.props)) {
     if (name === "children") {
       continue;
@@ -317,25 +367,11 @@ async function* renderElement(
     emitAttributeWarning(name, value, context);
     const attribute = serializeAttribute(name, value);
     if (attribute.length > 0) {
-      yield " ";
-      yield attribute;
+      openingTag += ` ${attribute}`;
     }
   }
-  yield ">";
 
-  if (VOID_ELEMENTS.has(tagName.toLowerCase())) {
-    if (hasRenderableChildren(children)) {
-      throw new RenderError(`Void element <${tagName}> cannot have children.`);
-    }
-    return;
-  }
-
-  if (RAW_TEXT_ELEMENTS.has(tagName.toLowerCase())) {
-    yield* renderRawTextValue(children, context, tagName.toLowerCase());
-  } else {
-    yield* renderValue(children, context);
-  }
-  yield `</${tagName}>`;
+  return `${openingTag}>`;
 }
 
 async function* renderRawTextValue(
@@ -633,6 +669,29 @@ function addComponentFrame(error: unknown, frame: ComponentFrame): RenderError {
   return new RenderError(String(error), [frame], { cause: error });
 }
 
+function addElementFrame(error: unknown, frame: ElementFrame): RenderError {
+  const location = formatSourceLocation(frame.source);
+  const elementDetail = `Element: <${frame.tagName}>${location}`;
+
+  if (error instanceof RenderError) {
+    return new RenderError(
+      `${error.detail}\n\n${elementDetail}`,
+      error.componentStack,
+      { cause: error.cause ?? error },
+    );
+  }
+
+  if (error instanceof Error) {
+    return new RenderError(`${error.message}\n\n${elementDetail}`, [], {
+      cause: error,
+    });
+  }
+
+  return new RenderError(`${String(error)}\n\n${elementDetail}`, [], {
+    cause: error,
+  });
+}
+
 function formatMessage(
   detail: string,
   componentStack: readonly ComponentFrame[],
@@ -642,18 +701,20 @@ function formatMessage(
   }
 
   const lines = componentStack.map((frame) => {
-    if (!frame.source?.fileName) {
-      return `  at <${frame.name}>`;
-    }
-
-    const line = frame.source.lineNumber === undefined
-      ? ""
-      : `:${frame.source.lineNumber}`;
-    const column = frame.source.columnNumber === undefined
-      ? ""
-      : `:${frame.source.columnNumber}`;
-    return `  at <${frame.name}> (${frame.source.fileName}${line}${column})`;
+    return `  at <${frame.name}>${formatSourceLocation(frame.source)}`;
   });
 
   return `${detail}\n\nComponent stack:\n${lines.join("\n")}`;
+}
+
+function formatSourceLocation(source: SourceLocation | undefined): string {
+  if (!source?.fileName) {
+    return "";
+  }
+
+  const line = source.lineNumber === undefined ? "" : `:${source.lineNumber}`;
+  const column = source.columnNumber === undefined
+    ? ""
+    : `:${source.columnNumber}`;
+  return ` (${source.fileName}${line}${column})`;
 }
