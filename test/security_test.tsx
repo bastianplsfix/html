@@ -5,7 +5,13 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "@std/assert";
-import { renderToString, scriptJSON, unsafeHTML } from "@bastianplsfix/html";
+import {
+  RenderError,
+  renderToString,
+  type RenderWarning,
+  scriptJSON,
+  unsafeHTML,
+} from "@bastianplsfix/html";
 import {
   assertValidAttributeName,
   assertValidTagName,
@@ -291,4 +297,44 @@ Deno.test("URL attribute inspection returns immutable development diagnostics", 
   assertEquals(inspectUrlAttribute("href", "/safe"), undefined);
   assertEquals(inspectUrlAttribute("title", "javascript:alert(1)"), undefined);
   assertEquals(inspectUrlAttribute("href", 123), undefined);
+});
+
+Deno.test("renderers report dangerous dynamic URLs without rewriting them", async () => {
+  const warnings: RenderWarning[] = [];
+  const href = "\njava\tscript:alert(1)";
+
+  const output = await renderToString(<a href={href}>Open</a>, {
+    onWarning: (warning) => warnings.push(warning),
+  });
+
+  assertEquals(output, `<a href="\njava\tscript:alert(1)">Open</a>`);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].attributeName, "href");
+  assertEquals(warnings[0].scheme, "javascript");
+});
+
+Deno.test("script and style require explicitly trusted raw-text children", async () => {
+  await assertRejects(
+    () => renderToString(<script>{`alert("plain")`}</script>),
+    RenderError,
+    "Plain renderable values are not allowed inside <script>",
+  );
+  await assertRejects(
+    () => renderToString(<style>{"body { color: red; }"}</style>),
+    RenderError,
+    "Plain renderable values are not allowed inside <style>",
+  );
+
+  assertEquals(
+    await renderToString(
+      <script type="application/json">
+        {scriptJSON({ safe: "</script>" })}
+      </script>,
+    ),
+    `<script type="application/json">{"safe":"\\u003C/script\\u003E"}</script>`,
+  );
+  assertEquals(
+    await renderToString(<style>{unsafeHTML("body { color: red; }")}</style>),
+    "<style>body { color: red; }</style>",
+  );
 });

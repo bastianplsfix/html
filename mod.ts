@@ -10,5 +10,6 @@ export {
   type RenderOptions,
   renderToStream,
   renderToString,
+  type RenderWarning,
 } from "./src/render.ts";
 export type { Children, Component, Html, Renderable } from "./src/model.ts";

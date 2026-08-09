@@ -11,6 +11,7 @@ import {
   escapeText,
   serializeAttribute,
 } from "./escape.ts";
+import { inspectUrlAttribute, type SecurityWarning } from "./security.ts";
 
 const VOID_ELEMENTS = new Set([
   "area",
@@ -28,10 +29,17 @@ const VOID_ELEMENTS = new Set([
   "wbr",
 ]);
 
+const RAW_TEXT_ELEMENTS = new Set(["script", "style"]);
+
+/** A non-fatal diagnostic discovered while rendering a value. */
+export type RenderWarning = SecurityWarning;
+
 /** Options shared by renderer entrypoints. */
 export interface RenderOptions {
   /** Stops traversal when the signal is aborted. */
   readonly signal?: AbortSignal;
+  /** Receives security diagnostics without changing the rendered output. */
+  readonly onWarning?: (warning: RenderWarning) => void;
 }
 
 interface ComponentFrame {
@@ -57,6 +65,7 @@ export class RenderError extends Error {
 }
 
 interface RenderContext {
+  readonly onWarning?: (warning: RenderWarning) => void;
   readonly signal?: AbortSignal;
 }
 
@@ -66,6 +75,7 @@ export async function renderToString(
   options: RenderOptions = {},
 ): Promise<string> {
   const context: RenderContext = {
+    ...(options.onWarning ? { onWarning: options.onWarning } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   };
   const chunks: string[] = [];
@@ -84,7 +94,10 @@ export function renderToStream(
   options: RenderOptions = {},
 ): ReadableStream<Uint8Array> {
   const cancellation = new AbortController();
-  const context: RenderContext = { signal: cancellation.signal };
+  const context: RenderContext = {
+    ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+    signal: cancellation.signal,
+  };
   const iterator = renderValue(view, context)[Symbol.asyncIterator]();
   const encoder = new StreamingUtf8Encoder();
   let removeAbortListener = () => {};
@@ -241,6 +254,7 @@ async function* renderNode(
       yield* renderValue(node.value, context);
       return;
     case "attribute":
+      emitAttributeWarning(node.name, node.value, context);
       yield serializeAttribute(node.name, node.value);
       return;
     case "fragment":
@@ -300,6 +314,7 @@ async function* renderElement(
       continue;
     }
 
+    emitAttributeWarning(name, value, context);
     const attribute = serializeAttribute(name, value);
     if (attribute.length > 0) {
       yield " ";
@@ -315,8 +330,111 @@ async function* renderElement(
     return;
   }
 
-  yield* renderValue(children, context);
+  if (RAW_TEXT_ELEMENTS.has(tagName.toLowerCase())) {
+    yield* renderRawTextValue(children, context, tagName.toLowerCase());
+  } else {
+    yield* renderValue(children, context);
+  }
   yield `</${tagName}>`;
+}
+
+async function* renderRawTextValue(
+  value: unknown,
+  context: RenderContext,
+  tagName: string,
+): AsyncGenerator<string, void, void> {
+  throwIfAborted(context.signal);
+
+  if (value === null || value === undefined || typeof value === "boolean") {
+    return;
+  }
+
+  if (isHtml(value)) {
+    switch (value.nodeType) {
+      case "raw":
+        yield value.value;
+        return;
+      case "fragment":
+        yield* renderRawTextValue(value.children, context, tagName);
+        return;
+      case "component":
+        yield* renderRawTextComponent(value, context, tagName);
+        return;
+      default:
+        throw rawTextChildError(tagName);
+    }
+  }
+
+  if (typeof value === "object") {
+    if (isPromiseLike(value)) {
+      const resolved = await awaitWithSignal(value, context.signal);
+      yield* renderRawTextValue(resolved, context, tagName);
+      return;
+    }
+
+    if (isAsyncIterable(value)) {
+      yield* renderRawTextAsyncIterable(value, context, tagName);
+      return;
+    }
+
+    if (isIterable(value)) {
+      for (const child of value) {
+        yield* renderRawTextValue(child, context, tagName);
+        throwIfAborted(context.signal);
+      }
+      return;
+    }
+  }
+
+  throw rawTextChildError(tagName);
+}
+
+async function* renderRawTextComponent(
+  node: ComponentNode,
+  context: RenderContext,
+  tagName: string,
+): AsyncGenerator<string, void, void> {
+  const frame: ComponentFrame = {
+    name: node.component.name || "Anonymous",
+    ...(node.source ? { source: node.source } : {}),
+  };
+
+  try {
+    throwIfAborted(context.signal);
+    yield* renderRawTextValue(node.component(node.props), context, tagName);
+  } catch (error) {
+    if (context.signal?.aborted && error === context.signal.reason) {
+      throw error;
+    }
+    throw addComponentFrame(error, frame);
+  }
+}
+
+async function* renderRawTextAsyncIterable(
+  value: AsyncIterable<unknown>,
+  context: RenderContext,
+  tagName: string,
+): AsyncGenerator<string, void, void> {
+  const iterator = value[Symbol.asyncIterator]();
+  let completed = false;
+
+  try {
+    while (true) {
+      throwIfAborted(context.signal);
+      const result = await awaitWithSignal(iterator.next(), context.signal);
+      if (result.done) {
+        completed = true;
+        return;
+      }
+
+      yield* renderRawTextValue(result.value, context, tagName);
+      throwIfAborted(context.signal);
+    }
+  } finally {
+    if (!completed && typeof iterator.return === "function") {
+      await iterator.return();
+    }
+  }
 }
 
 async function* renderAsyncIterable(
@@ -371,6 +489,27 @@ function isIterable(value: object): value is Iterable<unknown> {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   signal?.throwIfAborted();
+}
+
+function emitAttributeWarning(
+  name: string,
+  value: unknown,
+  context: RenderContext,
+): void {
+  const warning = inspectUrlAttribute(name, value);
+  if (warning) {
+    context.onWarning?.(warning);
+  }
+}
+
+function rawTextChildError(tagName: string): RenderError {
+  const guidance = tagName === "script"
+    ? "Use scriptJSON() for embedded data or unsafeHTML() for trusted script source."
+    : "Use unsafeHTML() for trusted style source.";
+
+  return new RenderError(
+    `Plain renderable values are not allowed inside <${tagName}> because HTML raw-text elements require context-specific handling. ${guidance}`,
+  );
 }
 
 function awaitWithSignal<T>(
