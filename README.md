@@ -1,7 +1,7 @@
 # `@bastianplsfix/html`
 
 Typed, server-only TSX templates for Deno. No virtual DOM, hydration, hooks, or
-client runtime—just safe HTML values rendered to strings.
+client runtime—just safe HTML values rendered to strings or streams.
 
 [Documentation](https://bastianplsfix-html.bs.deno.net) ·
 [JSR](https://jsr.io/@bastianplsfix/html) · [Design](./DESIGN.md)
@@ -65,10 +65,49 @@ const response = new Response(body, {
 
 Plain strings are always escaped. Bypassing escaping requires an explicit
 `unsafeHTML(trustedMarkup)` call. Use `scriptJSON(value)` for JSON embedded in a
-`<script>` raw-text element.
+`<script>` raw-text element. Plain children are rejected inside `<script>` and
+`<style>`; use a context-appropriate trusted helper instead. Dynamic `on*` and
+`srcdoc` attributes are also rejected because HTML attribute escaping cannot
+make their executable contexts safe.
 
 See the [security model](https://bastianplsfix-html.bs.deno.net/security) for
 the trust boundary and context-specific guidance.
+
+URL escaping is intentionally separate from URL policy. Both renderers can
+report dangerous dynamic schemes without rewriting output:
+
+```tsx
+const body = await renderToString(view, {
+  onWarning(warning) {
+    console.warn(warning.message);
+  },
+});
+```
+
+Use the callback for development diagnostics, or throw from it when the
+application wants warnings to fail rendering. Applications must still validate
+allowed schemes and destinations.
+
+## Stream a view
+
+```tsx
+import { renderToStream } from "@bastianplsfix/html";
+
+const body = renderToStream(<Page />, {
+  signal: request.signal,
+});
+
+return new Response(body, {
+  headers: { "content-type": "text/html; charset=utf-8" },
+});
+```
+
+Streaming emits ordered UTF-8 chunks and advances traversal in response to
+consumer demand. Cancelling the stream or aborting its signal stops traversal
+and closes an active async iterator. It does not render unresolved components
+out of order. Once response bytes have been sent, later rendering failures
+cannot change the HTTP status; use `renderToString()` when preflight error
+handling matters more than progressive output.
 
 ## Response helper
 
@@ -92,6 +131,11 @@ deno task docs
 ```
 
 Then open <http://localhost:8000>.
+
+The optimized `precompile` JSX transform does not currently supply source
+locations to the runtime. For development builds that need file and line details
+in component stacks, use `"jsx": "react-jsxdev"` with the same
+`jsxImportSource`. Component names are retained under either transform.
 
 ## Scope
 

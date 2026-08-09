@@ -1,7 +1,7 @@
 # `@bastianplsfix/html` design
 
-Status: accepted direction; buffered renderer implemented for the initial 0.1
-prototype.
+Status: accepted direction; buffered and ordered streaming renderers implemented
+in the current source.
 
 ## Product thesis
 
@@ -54,9 +54,10 @@ Once the package is published, a consumer can configure Deno like this:
 }
 ```
 
-Skipping `script` and `style` leaves those raw-text elements for the runtime,
-where stricter context-specific behavior can evolve without changing the
-component API.
+Skipping `script` and `style` leaves those raw-text elements for the runtime.
+This setting is required for the runtime to enforce their context-specific child
+rules; plain values are rejected and callers must use `scriptJSON()` or an
+explicit trusted raw instruction.
 
 ## Intended usage
 
@@ -271,11 +272,11 @@ async function UserBadge({ userId }: { userId: string }) {
 The JSX runtime does not execute `UserBadge`. It creates an immutable component
 instruction containing the function and props. The renderer invokes it later.
 This allows rendering options such as an abort signal to flow through traversal
-and preserves a path to streaming without changing the component API.
+and lets buffered and streaming entrypoints share the same ordered traversal.
 
 ## Buffered and streaming output
 
-The intended core API is:
+The core API is:
 
 ```ts
 export function renderToString(
@@ -288,12 +289,17 @@ export function renderToStream(
   options?: RenderOptions,
 ): ReadableStream<Uint8Array>;
 
+export interface RenderOptions {
+  readonly signal?: AbortSignal;
+  readonly onWarning?: (warning: RenderWarning) => void;
+}
+
 export function doctype(): Html;
 export function unsafeHTML(value: string): Html;
 export function scriptJSON(value: unknown): Html;
 ```
 
-The initial public release exposes buffered rendering first:
+Buffered rendering remains the default:
 
 ```tsx
 const body = await renderToString(<Page />);
@@ -303,7 +309,7 @@ return new Response(body, init);
 Buffering lets an application catch every rendering error before committing an
 HTTP response, then choose an error page and status code.
 
-Streaming will be explicit:
+Streaming is explicit:
 
 ```tsx
 const body = renderToStream(<Page />, { signal: request.signal });
@@ -313,7 +319,7 @@ return new Response(body, {
 });
 ```
 
-The first streaming model should be ordered and unsurprising:
+The streaming model is ordered and unsurprising:
 
 ```text
 render prefix
@@ -322,9 +328,17 @@ render it
 continue
 ```
 
-There is no initial Suspense-style system. Once the first bytes are sent, the
-application cannot replace the response with another HTTP status; that tradeoff
-must stay explicit.
+The stream emits UTF-8 chunks and advances traversal only as the consumer pulls,
+so normal `ReadableStream` backpressure controls renderer progress. Promises and
+async iterables still resolve in document order; there is no Suspense-style or
+out-of-order completion model.
+
+Cancelling the stream or aborting `options.signal` stops traversal and calls
+`return()` on an active async iterator. This cleans up renderer-owned iteration;
+arbitrary async work must still observe an application signal if it needs its
+own cancellation. Once the first bytes are sent, the application cannot replace
+the response with another HTTP status, and later rendering failures surface as
+stream errors. That tradeoff stays explicit.
 
 ## Optional Response adapter
 
@@ -407,9 +421,47 @@ HTML escaping does not make a URL semantically safe:
 ```
 
 A `javascript:` URL can be correctly HTML-escaped and remain dangerous. The
-initial contract documents this distinction. A later development mode should
-warn about dangerous schemes rather than pretending escaping is URL
-sanitization.
+renderer does not rewrite it, but an optional `onWarning` callback receives an
+immutable diagnostic for dangerous dynamic `javascript:` and `vbscript:` URL
+schemes, including browser-normalized control-character variants:
+
+```tsx
+const body = await renderToString(view, {
+  onWarning(warning) {
+    console.warn(warning.message);
+  },
+});
+```
+
+The callback is a development diagnostic, not a sanitizer. An application may
+throw from it to fail rendering, but it must still define and enforce its own
+URL allowlist.
+
+### Executable attribute contexts
+
+Dynamic attribute names beginning with `on` are rejected case-insensitively.
+Although quoting prevents an attribute breakout, browsers decode and execute an
+inline event-handler value as JavaScript. Dynamic `srcdoc` is also rejected
+because browsers decode the attribute and parse the result as a new HTML
+document. Deliberate trusted markup remains possible through the visibly unsafe
+`unsafeHTML()` boundary.
+
+### Raw-text elements
+
+Plain strings and ordinary renderable instructions are rejected inside
+`<script>` and `<style>`. Raw-text parsing does not follow ordinary HTML text
+escaping rules, so accepted children must resolve to explicitly trusted raw
+instructions:
+
+```tsx
+<script type="application/json">{scriptJSON(data)}</script>
+<style>{unsafeHTML(trustedStylesheet)}</style>
+```
+
+`scriptJSON()` is the narrow helper for JSON data. `unsafeHTML()` performs no
+sanitization and is also unsafe in JavaScript and CSS contexts; its input must
+already be trusted for the specific raw-text language. This enforcement depends
+on keeping `script` and `style` in `jsxPrecompileSkipElements`.
 
 ## Attribute behavior
 
@@ -434,6 +486,8 @@ The rules are:
 - `data-*` and `aria-*` are supported;
 - custom elements such as `<user-avatar>` are supported;
 - function-valued client event props are type errors;
+- emitted `on*` attributes are rejected at runtime, including spread props;
+- emitted `srcdoc` is rejected because it creates a nested HTML context;
 - `ref` is rejected because it has no server-only meaning.
 
 For 0.1, `class` and `style` remain strings:
@@ -490,7 +544,10 @@ export function jsx(
 ```
 
 It also provides `Fragment`, `jsxs`, and `jsxDEV`. The development entrypoint
-retains source metadata when the invoking JSX transform supplies it.
+retains source metadata when the invoking JSX transform supplies it. Deno's
+`react-jsxdev` mode supplies file, line, and column details; the optimized
+`precompile` transform currently does not. Component names remain available in
+both modes.
 
 Diagnostics should ultimately look like:
 
@@ -681,21 +738,24 @@ through Preact, Hono, and Fresh. The product thesis rests on:
 - [x] `scriptJSON()`;
 - [x] optional buffered response adapter.
 
-The instruction representation is streaming-ready, but streaming is not part of
-the initial public renderer contract.
+These items define the original buffered foundation. Streaming and the stricter
+security work below build on the same value semantics.
 
 ### Follow-up work
 
-- [ ] `renderToStream()` with ordered output;
-- [ ] streaming backpressure tests;
-- [ ] abort-aware iterator cleanup;
+- [x] `renderToStream()` with ordered UTF-8 output;
+- [x] streaming backpressure tests;
+- [x] abort-aware iterator cleanup;
 - [ ] richer development source locations under precompile;
-- [ ] development warnings for dangerous URL schemes;
-- [ ] stricter `script` and `style` raw-text policies;
-- [ ] broader generated HTML and SVG living-standard types;
-- [ ] explicit inline SVG coverage;
-- [ ] custom-element attribute refinements;
-- [ ] performance benchmarks and synchronous fast paths.
+- [x] source-aware component diagnostics under `react-jsxdev`;
+- [x] development warnings for dangerous URL schemes;
+- [x] dynamic inline-event and `srcdoc` rejection;
+- [x] stricter `script` and `style` raw-text policies;
+- [x] broader HTML and SVG tag coverage sourced from Deno's DOM maps;
+- [x] explicit inline SVG coverage with serialized attribute names;
+- [x] serializable custom-element attribute refinements;
+- [x] baseline buffered and streaming benchmarks;
+- [ ] synchronous fast paths.
 
 ## Contract-defining test
 

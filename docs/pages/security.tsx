@@ -4,7 +4,9 @@ import {
   ATTRIBUTE_CODE,
   ESCAPING_CODE,
   JSON_CODE,
+  RAW_TEXT_CODE,
   UNSAFE_CODE,
+  WARNING_CODE,
 } from "../content/examples.ts";
 
 /** Security guarantees and explicit trust boundaries. */
@@ -31,8 +33,17 @@ export function SecurityPage(): Html {
         <p>
           Dynamic attribute values are validated and escaped for a double-quoted
           attribute context. Spread attribute names are validated as well.
+          Dynamic <code>on*</code>{" "}
+          attributes are rejected case-insensitively because browsers execute
+          their decoded values as JavaScript.
         </p>
         <CodeBlock code={ATTRIBUTE_CODE} filename="form.tsx" />
+        <p>
+          Dynamic <code>srcdoc</code>{" "}
+          is rejected too: the browser decodes that attribute and parses its
+          value as a nested HTML document, so ordinary attribute escaping is not
+          a sufficient boundary.
+        </p>
       </section>
 
       <section id="unsafe-html">
@@ -58,9 +69,29 @@ export function SecurityPage(): Html {
           A script element is not an ordinary HTML text context. Use
           <code>scriptJSON()</code>{" "}
           to serialize data and neutralize characters that could close the
-          element.
+          element. It follows JSON serialization rules and throws for values
+          such as cycles and bigints.
         </p>
         <CodeBlock code={JSON_CODE} filename="document.tsx" />
+      </section>
+
+      <section id="raw-text">
+        <h2>Script and style children are strict</h2>
+        <p>
+          Keep <code>script</code> and <code>style</code> in{" "}
+          <code>jsxPrecompileSkipElements</code>. The runtime then rejects plain
+          strings and ordinary renderable instructions inside those raw-text
+          elements.
+        </p>
+        <CodeBlock code={RAW_TEXT_CODE} filename="document.tsx" />
+        <Callout title="Trust is context-specific" tone="warning">
+          <p>
+            <code>unsafeHTML()</code>{" "}
+            performs no HTML, JavaScript, or CSS sanitization. A value trusted
+            as HTML is not automatically safe as script or stylesheet source.
+            Use it here only when the exact raw-text source is already trusted.
+          </p>
+        </Callout>
       </section>
 
       <section id="urls">
@@ -72,6 +103,20 @@ export function SecurityPage(): Html {
           according to your application's URL policy before rendering
           user-controlled links.
         </p>
+        <CodeBlock code={WARNING_CODE} filename="render.tsx" />
+        <p>
+          Both renderers can pass immutable diagnostics for dynamic
+          <code>javascript:</code> and <code>vbscript:</code> schemes to{" "}
+          <code>onWarning</code>, including common control-character disguises.
+          The renderer leaves the URL unchanged.
+        </p>
+        <Callout title="Warnings do not sanitize">
+          <p>
+            Log warnings during development, or throw from the callback to make
+            them fatal. Either way, define an application allowlist for schemes
+            and destinations instead of treating the callback as validation.
+          </p>
+        </Callout>
       </section>
 
       <nav class="next-page" aria-label="Next documentation page">

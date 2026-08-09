@@ -1,6 +1,11 @@
 import type { Html } from "@bastianplsfix/html";
 import { Callout, CodeBlock, PageHeader } from "../components/mod.ts";
-import { ASYNC_CODE, COMPONENT_CODE } from "../content/examples.ts";
+import {
+  ASYNC_CODE,
+  COMPONENT_CODE,
+  DEV_CONFIG_CODE,
+  STREAM_CODE,
+} from "../content/examples.ts";
 
 /** Explanation of values, deferred components, async traversal, and attributes. */
 export function ConceptsPage(): Html {
@@ -78,16 +83,61 @@ export function ConceptsPage(): Html {
         <h2>Async is part of the value model</h2>
         <p>
           Promise-returning components need no wrapper or special syntax. During
-          buffered rendering they are awaited exactly where they occur.
+          both buffered and streaming rendering they are awaited exactly where
+          they occur.
         </p>
         <CodeBlock code={ASYNC_CODE} filename="user-badge.tsx" />
         <Callout title="Ordering is deterministic">
           <p>
             Arrays, generators, promises, and async generators are flattened in
-            document order. This same instruction model is the foundation for a
-            future ordered streaming renderer.
+            document order. Streaming never reveals a later component before an
+            earlier one has resolved.
           </p>
         </Callout>
+      </section>
+
+      <section id="streaming">
+        <h2>Streaming is explicit</h2>
+        <p>
+          <code>renderToStream()</code> returns a Web Standard{" "}
+          <code>ReadableStream&lt;Uint8Array&gt;</code>. Traversal advances when
+          the consumer pulls, so stream backpressure also controls renderer
+          progress.
+        </p>
+        <CodeBlock code={STREAM_CODE} filename="main.tsx" />
+        <p>
+          Cancelling the reader or aborting the supplied signal stops traversal
+          and closes an active async iterator. Async work outside the renderer
+          should observe the same signal when it needs its own cancellation.
+        </p>
+        <Callout title="The response may already be committed">
+          <p>
+            A rendering error after the first chunk becomes a stream error; the
+            handler can no longer replace the response status or headers. Use
+            <code>renderToString()</code>{" "}
+            when catching every rendering error before returning a response is
+            more important.
+          </p>
+        </Callout>
+      </section>
+
+      <section id="diagnostics">
+        <h2>Development source locations</h2>
+        <p>
+          Component errors retain component names under every transform. File,
+          line, and column details appear only when the JSX transform supplies
+          them. Use a separate development configuration with
+          <code>react-jsxdev</code> when source locations matter:
+        </p>
+        <CodeBlock
+          code={DEV_CONFIG_CODE}
+          language="json"
+          filename="deno.dev.json"
+        />
+        <p>
+          Deno's optimized <code>precompile</code>{" "}
+          transform does not currently provide source locations to this runtime.
+        </p>
       </section>
 
       <section id="attributes">
@@ -104,6 +154,10 @@ export function ConceptsPage(): Html {
           </li>
           <li>Strings and numbers become escaped quoted values.</li>
           <li>Objects, symbols, and functions throw.</li>
+          <li>
+            Dynamic <code>on*</code> and <code>srcdoc</code>{" "}
+            attributes are rejected at runtime.
+          </li>
           <li>
             <code>data-*</code>,{" "}
             <code>aria-*</code>, SVG, and custom elements are typed.

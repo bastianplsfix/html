@@ -48,12 +48,17 @@ export function GettingStartedPage(): Html {
         <CodeBlock code="deno serve main.tsx" language="shell" />
       </section>
 
-      <Callout title="Buffered by default">
+      <Callout title="Choose when the response commits">
         <p>
           <code>renderToString()</code>{" "}
           finishes before a response is returned. If a component fails, your
           handler can still choose a different status code or render an error
           page.
+        </p>
+        <p>
+          Use <code>renderToStream()</code>{" "}
+          explicitly for ordered, backpressure-aware output when that benefit is
+          worth committing the status before the complete view has rendered.
         </p>
       </Callout>
 

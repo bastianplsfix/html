@@ -95,7 +95,7 @@ export function Pipeline(): Html {
       </div>
       <span aria-hidden="true">→</span>
       <div>
-        <strong>string</strong>
+        <strong>string / stream</strong>
         <span>rendering</span>
       </div>
       <span aria-hidden="true">→</span>

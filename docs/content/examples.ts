@@ -78,6 +78,27 @@ export const ASYNC_CODE = [
   'const view = <UserBadge userId="123" />;',
 ].join("\n");
 
+export const STREAM_CODE = [
+  'import { renderToStream } from "@bastianplsfix/html";',
+  "",
+  "const body = renderToStream(<Page />, {",
+  "  signal: request.signal,",
+  "});",
+  "",
+  "return new Response(body, {",
+  '  headers: { "content-type": "text/html; charset=utf-8" },',
+  "});",
+].join("\n");
+
+export const DEV_CONFIG_CODE = [
+  "{",
+  '  "compilerOptions": {',
+  '    "jsx": "react-jsxdev",',
+  '    "jsxImportSource": "@bastianplsfix/html"',
+  "  }",
+  "}",
+].join("\n");
+
 export const ESCAPING_CODE = [
   'const query = `<script>alert("hello")</script>`;',
   "const view = <p>{query}</p>;",
@@ -111,4 +132,23 @@ export const JSON_CODE = [
   "    {scriptJSON(state)}",
   "  </script>",
   ");",
+].join("\n");
+
+export const RAW_TEXT_CODE = [
+  "return (",
+  "  <>",
+  '    <script type="application/json">',
+  "      {scriptJSON(data)}",
+  "    </script>",
+  "    <style>{unsafeHTML(trustedStylesheet)}</style>",
+  "  </>",
+  ");",
+].join("\n");
+
+export const WARNING_CODE = [
+  "const body = await renderToString(view, {",
+  "  onWarning(warning) {",
+  "    console.warn(warning.message);",
+  "  },",
+  "});",
 ].join("\n");

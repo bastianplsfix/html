@@ -14,7 +14,8 @@ export function HomePage(): Html {
           </h1>
           <p class="hero-lead">
             Build typed server templates with ordinary TypeScript. No virtual
-            DOM, hydration, hooks, or browser bundle—just safe HTML strings.
+            DOM, hydration, hooks, or browser bundle—just safe HTML strings and
+            streams.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="/getting-started">
@@ -50,7 +51,8 @@ export function HomePage(): Html {
           <h2>Async-native</h2>
           <p>
             Components can return promises, iterables, or async iterables. The
-            renderer resolves everything in document order.
+            renderer resolves everything in document order, buffered or
+            streamed.
           </p>
           <a href="/concepts#async">Understand async rendering →</a>
         </article>

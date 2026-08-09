@@ -1,13 +1,13 @@
 import type { Html } from "@bastianplsfix/html";
 import { ApiEntry, Callout, PageHeader } from "../components/mod.ts";
 
-/** Public 0.1 API reference. */
+/** Public API reference. */
 export function ApiPage(): Html {
   return (
     <article class="prose-page api-page">
       <PageHeader
         title="API reference"
-        lead="The 0.1 surface is intentionally compact: values, one buffered renderer, and explicit trust helpers."
+        lead="The surface stays compact: one value model, buffered and streaming renderers, and explicit trust helpers."
       />
 
       <div class="import-path">
@@ -25,9 +25,60 @@ export function ApiPage(): Html {
         ].join("\n")}
       >
         <p>
-          Resolves a complete renderable tree into one HTML string. An optional
-          <code>AbortSignal</code>{" "}
-          stops traversal when the request is cancelled.
+          Resolves a complete renderable tree into one HTML string. Rendering
+          errors reject the promise before an HTTP response needs to be
+          committed.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="renderToStream"
+        signature={[
+          "function renderToStream(",
+          "  view: Renderable,",
+          "  options?: RenderOptions,",
+          "): ReadableStream<Uint8Array>",
+        ].join("\n")}
+      >
+        <p>
+          Produces ordered UTF-8 chunks. Traversal follows consumer demand, and
+          cancellation closes an active async iterator. Rendering errors after
+          bytes have been consumed surface as stream errors.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="RenderOptions"
+        signature={[
+          "interface RenderOptions {",
+          "  readonly signal?: AbortSignal;",
+          "  readonly onWarning?: (warning: RenderWarning) => void;",
+          "}",
+        ].join("\n")}
+      >
+        <p>
+          Shared by both renderers. The signal stops traversal. The warning
+          callback receives dangerous dynamic URL diagnostics without rewriting
+          output; throw from the callback if application policy should make one
+          fatal.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="RenderWarning"
+        signature={[
+          "interface RenderWarning {",
+          '  readonly code: "dangerous-url-scheme";',
+          "  readonly attributeName: string;",
+          '  readonly scheme: "javascript" | "vbscript";',
+          "  readonly value: string;",
+          "  readonly message: string;",
+          "}",
+        ].join("\n")}
+      >
+        <p>
+          An immutable security diagnostic. It is intended for development
+          visibility and does not replace application URL validation.
         </p>
       </ApiEntry>
 
@@ -52,7 +103,8 @@ export function ApiPage(): Html {
         <p>
           Serializes JSON for a script raw-text context, escaping
           <code>&lt;</code>, <code>&gt;</code>,{" "}
-          <code>&amp;</code>, U+2028, and U+2029.
+          <code>&amp;</code>, U+2028, and U+2029. Values unsupported by JSON,
+          including cycles and bigints, throw.
         </p>
       </ApiEntry>
 
@@ -97,12 +149,13 @@ export function ApiPage(): Html {
         <p>A deferred server component with no instances or lifecycle.</p>
       </ApiEntry>
 
-      <Callout title="Planned, not public yet">
+      <Callout title="Choose the response boundary deliberately">
         <p>
+          <code>renderToString()</code>{" "}
+          lets a handler choose an error response before sending bytes.
           <code>renderToStream()</code>{" "}
-          is intentionally absent while buffered escaping, component, and error
-          semantics settle. The instruction model already preserves the ordered
-          traversal it will need.
+          provides backpressure and progressive output, but a later failure
+          cannot change an already committed status or header.
         </p>
       </Callout>
     </article>

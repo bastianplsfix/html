@@ -55,7 +55,8 @@ const ROUTES: ReadonlyMap<string, DocsRoute> = new Map([
     "/api",
     {
       title: "API reference",
-      description: "Reference for the buffered 0.1 API of @bastianplsfix/html.",
+      description:
+        "Reference for @bastianplsfix/html values, buffered and streaming renderers, options, and trust helpers.",
       component: ApiPage,
     },
   ],
