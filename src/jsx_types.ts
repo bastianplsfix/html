@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 import type { Html, Renderable } from "./model.ts";
 
 /** Values accepted by ordinary HTML attributes. */
@@ -759,17 +757,143 @@ export interface CustomElementAttributes extends HTMLAttributes {
   [name: `${string}-${string}`]: AttributeValue;
 }
 
+// Checked snapshots of the non-specialized names in TypeScript's DOM tag maps.
+// Keeping the names local avoids forcing DOM globals into server consumers and
+// complies with JSR's ban on global-modifying triple-slash directives.
+type GeneralHTMLTag =
+  | "abbr"
+  | "address"
+  | "article"
+  | "aside"
+  | "b"
+  | "bdi"
+  | "bdo"
+  | "body"
+  | "br"
+  | "caption"
+  | "cite"
+  | "code"
+  | "datalist"
+  | "dd"
+  | "dfn"
+  | "div"
+  | "dl"
+  | "dt"
+  | "em"
+  | "figcaption"
+  | "figure"
+  | "footer"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "h5"
+  | "h6"
+  | "head"
+  | "header"
+  | "hgroup"
+  | "hr"
+  | "i"
+  | "kbd"
+  | "legend"
+  | "main"
+  | "mark"
+  | "nav"
+  | "noscript"
+  | "p"
+  | "picture"
+  | "pre"
+  | "rp"
+  | "rt"
+  | "ruby"
+  | "s"
+  | "samp"
+  | "search"
+  | "section"
+  | "small"
+  | "span"
+  | "strong"
+  | "sub"
+  | "summary"
+  | "sup"
+  | "table"
+  | "tbody"
+  | "template"
+  | "tfoot"
+  | "thead"
+  | "title"
+  | "tr"
+  | "u"
+  | "ul"
+  | "var"
+  | "wbr";
+
+type GeneralSVGTag =
+  | "animate"
+  | "animateMotion"
+  | "animateTransform"
+  | "circle"
+  | "clipPath"
+  | "defs"
+  | "desc"
+  | "ellipse"
+  | "feBlend"
+  | "feColorMatrix"
+  | "feComponentTransfer"
+  | "feComposite"
+  | "feConvolveMatrix"
+  | "feDiffuseLighting"
+  | "feDisplacementMap"
+  | "feDistantLight"
+  | "feDropShadow"
+  | "feFlood"
+  | "feFuncA"
+  | "feFuncB"
+  | "feFuncG"
+  | "feFuncR"
+  | "feGaussianBlur"
+  | "feImage"
+  | "feMerge"
+  | "feMergeNode"
+  | "feMorphology"
+  | "feOffset"
+  | "fePointLight"
+  | "feSpecularLighting"
+  | "feSpotLight"
+  | "feTile"
+  | "feTurbulence"
+  | "filter"
+  | "foreignObject"
+  | "g"
+  | "image"
+  | "line"
+  | "linearGradient"
+  | "marker"
+  | "mask"
+  | "metadata"
+  | "mpath"
+  | "path"
+  | "pattern"
+  | "polygon"
+  | "polyline"
+  | "radialGradient"
+  | "rect"
+  | "set"
+  | "stop"
+  | "switch"
+  | "symbol"
+  | "text"
+  | "textPath"
+  | "tspan"
+  | "use"
+  | "view";
+
 type GeneralHTMLIntrinsicElements = {
-  [Tag in keyof HTMLElementTagNameMap]: HTMLAttributes;
+  [Tag in GeneralHTMLTag]: HTMLAttributes;
 };
 
 type GeneralSVGIntrinsicElements = {
-  [
-    Tag in Exclude<
-      keyof SVGElementTagNameMap,
-      keyof HTMLElementTagNameMap
-    >
-  ]: SVGAttributes;
+  [Tag in GeneralSVGTag]: SVGAttributes;
 };
 
 /** Types consumed by TypeScript's automatic JSX transform. */
