@@ -1,4 +1,5 @@
 const VALID_TAG_NAME = /^[A-Za-z][A-Za-z0-9._:-]*$/u;
+const INLINE_EVENT_HANDLER = /^on/iu;
 
 /** Escape a value for an HTML text context. */
 export function escapeText(value: string): string {
@@ -34,7 +35,7 @@ export function assertValidTagName(name: string): void {
 
 export function assertValidAttributeName(name: string): void {
   const invalid = [...name].some((character) =>
-    character.charCodeAt(0) <= 0x20 || `"'<>/=`.includes(character)
+    isControlCharacter(character) || `"'<>/=`.includes(character)
   );
 
   if (name.length === 0 || invalid) {
@@ -53,6 +54,22 @@ export function serializeAttribute(name: string, value: unknown): string {
 
   if (value === null || value === undefined || value === false) {
     return "";
+  }
+
+  const normalizedName = name.toLowerCase();
+
+  if (INLINE_EVENT_HANDLER.test(normalizedName)) {
+    throw new TypeError(
+      `Cannot render the ${
+        JSON.stringify(name)
+      } attribute because inline event handlers execute JavaScript.`,
+    );
+  }
+
+  if (normalizedName === "srcdoc") {
+    throw new TypeError(
+      "Cannot render the srcdoc attribute because browsers parse its value as HTML after decoding character references.",
+    );
   }
 
   if (name === "ref") {
@@ -89,4 +106,11 @@ export function serializeAttribute(name: string, value: unknown): string {
         } attribute.`,
       );
   }
+}
+
+function isControlCharacter(character: string): boolean {
+  const codePoint = character.codePointAt(0)!;
+  return codePoint <= 0x20 ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff);
 }

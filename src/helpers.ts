@@ -22,7 +22,17 @@ export function unsafeHTML(value: string): Html {
 
 /** Serialize data for an HTML `<script>` raw-text context. */
 export function scriptJSON(value: unknown): Html {
-  const json = JSON.stringify(value);
+  let json: string | undefined;
+
+  try {
+    json = JSON.stringify(value);
+  } catch (cause) {
+    throw new TypeError(
+      "scriptJSON() could not serialize the value as JSON.",
+      { cause },
+    );
+  }
+
   if (json === undefined) {
     throw new TypeError("scriptJSON() received a value JSON cannot serialize.");
   }
