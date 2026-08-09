@@ -11,7 +11,7 @@ import {
   escapeText,
   serializeAttribute,
 } from "./escape.ts";
-import { inspectUrlAttribute, type SecurityWarning } from "./security.ts";
+import { inspectUrlAttribute } from "./security.ts";
 
 const VOID_ELEMENTS = new Set([
   "area",
@@ -31,8 +31,19 @@ const VOID_ELEMENTS = new Set([
 
 const RAW_TEXT_ELEMENTS = new Set(["script", "style"]);
 
-/** A non-fatal diagnostic discovered while rendering a value. */
-export type RenderWarning = SecurityWarning;
+/** A non-fatal security diagnostic discovered while rendering a value. */
+export interface RenderWarning {
+  /** Stable identifier suitable for programmatic warning handling. */
+  readonly code: "dangerous-url-scheme";
+  /** HTML attribute that caused the warning. */
+  readonly attributeName: string;
+  /** Executable URL scheme found after browser-style normalization. */
+  readonly scheme: "javascript" | "vbscript";
+  /** Original, unmodified attribute value. */
+  readonly value: string;
+  /** Human-readable explanation of the warning and its security boundary. */
+  readonly message: string;
+}
 
 /** Options shared by renderer entrypoints. */
 export interface RenderOptions {
@@ -42,8 +53,11 @@ export interface RenderOptions {
   readonly onWarning?: (warning: RenderWarning) => void;
 }
 
-interface ComponentFrame {
+/** One component in a `RenderError` stack, ordered innermost first. */
+export interface ComponentFrame {
+  /** Function name, or `Anonymous` when the function has no name. */
   readonly name: string;
+  /** JSX source location retained by the development runtime, when available. */
   readonly source?: SourceLocation;
 }
 
@@ -54,9 +68,22 @@ interface ElementFrame {
 
 /** An error enriched with the server-component path that produced it. */
 export class RenderError extends Error {
+  /** Component frames collected while the error unwound, innermost first. */
   readonly componentStack: readonly ComponentFrame[];
+  /** Original diagnostic text without the formatted component stack. */
   readonly detail: string;
 
+  /**
+   * Create a rendering error.
+   *
+   * Applications normally receive instances created by the renderer. The
+   * constructor remains public so integrations can preserve component context
+   * when translating errors.
+   *
+   * @param detail Diagnostic text without a formatted component stack.
+   * @param componentStack Existing frames, ordered innermost first.
+   * @param options Standard error options, including an underlying cause.
+   */
   constructor(
     detail: string,
     componentStack: readonly ComponentFrame[] = [],
@@ -74,7 +101,16 @@ interface RenderContext {
   readonly signal?: AbortSignal;
 }
 
-/** Render a value to one buffered HTML string. */
+/**
+ * Render a value to one buffered HTML string.
+ *
+ * Rendering proceeds in document order. Promises and async iterables are
+ * awaited before the returned promise resolves, and plain strings are escaped.
+ *
+ * @param view Value, component instruction, or collection to render.
+ * @param options Cancellation and warning-delivery options.
+ * @returns The complete rendered HTML document or fragment.
+ */
 export async function renderToString(
   view: Renderable,
   options: RenderOptions = {},
@@ -93,7 +129,17 @@ export async function renderToString(
   return chunks.join("");
 }
 
-/** Render a value as ordered UTF-8 chunks. */
+/**
+ * Render a value as an ordered stream of UTF-8 chunks.
+ *
+ * Traversal starts when the stream is read and follows normal stream
+ * backpressure. Rendering failures are delivered as stream errors. Cancelling
+ * the stream, or aborting `options.signal`, also closes active async iterators.
+ *
+ * @param view Value, component instruction, or collection to render.
+ * @param options Cancellation and warning-delivery options.
+ * @returns A byte stream containing the rendered HTML in document order.
+ */
 export function renderToStream(
   view: Renderable,
   options: RenderOptions = {},

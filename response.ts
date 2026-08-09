@@ -6,7 +6,20 @@
 
 import { type Renderable, renderToString } from "./mod.ts";
 
-/** Render a view into an HTML response, preserving caller-supplied headers. */
+/** The values accepted by the response renderer. */
+export type { Renderable } from "./mod.ts";
+
+/**
+ * Render a view into a buffered HTML response.
+ *
+ * Caller-supplied headers and response options are preserved. A
+ * `content-type` of `text/html; charset=utf-8` is added only when the caller did
+ * not provide one.
+ *
+ * @param view The renderable value used as the response body.
+ * @param init Status, headers, and other standard response options.
+ * @returns A response whose body has been fully rendered.
+ */
 export async function html(
   view: Renderable,
   init: ResponseInit = {},

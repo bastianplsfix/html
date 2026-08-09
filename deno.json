@@ -33,7 +33,8 @@
   },
   "tasks": {
     "bench": "deno bench bench/",
-    "check": "deno fmt --check && deno lint && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts bench/render_bench.tsx docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx && deno test --allow-read=docs/static/styles.css && deno test --config test/deno.dev.json test/dev_diagnostics.tsx",
+    "check": "deno fmt --check && deno lint && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts bench/render_bench.tsx docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx && deno task doc:lint && deno test --allow-read=docs/static/styles.css && deno test --config test/deno.dev.json test/dev_diagnostics.tsx",
+    "doc:lint": "deno doc --lint mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts",
     "docs": "deno serve --watch --allow-read=docs/static/styles.css docs/main.ts",
     "docs:start": "deno serve --allow-read=docs/static/styles.css docs/main.ts",
     "test": "deno test --allow-read=docs/static/styles.css",

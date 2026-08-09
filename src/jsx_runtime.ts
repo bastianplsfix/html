@@ -16,14 +16,19 @@ export const Fragment: unique symbol = Symbol.for(
   "@bastianplsfix/html.Fragment",
 );
 
-type RuntimeComponent = (
+/** A component callable accepted by compiler-generated JSX runtime calls. */
+export type JSXRuntimeComponent = (
   props: Readonly<Record<string, unknown>>,
 ) => Renderable;
 
-type RuntimeElement = string | RuntimeComponent | typeof Fragment;
+/** An intrinsic tag, component, or fragment accepted by the JSX runtime. */
+export type JSXRuntimeElement =
+  | string
+  | JSXRuntimeComponent
+  | typeof Fragment;
 
 function createInstruction(
-  type: RuntimeElement,
+  type: JSXRuntimeElement,
   props: Record<string, unknown> | null,
   source?: SourceLocation,
 ): Html {
@@ -44,7 +49,7 @@ function createInstruction(
 
 /** Automatic JSX runtime entrypoint. */
 export function jsx(
-  type: RuntimeElement,
+  type: JSXRuntimeElement,
   props: Record<string, unknown> | null,
   _key?: unknown,
 ): Html {
@@ -56,7 +61,7 @@ export const jsxs: typeof jsx = jsx;
 
 /** Development automatic JSX runtime entrypoint. */
 export function jsxDEV(
-  type: RuntimeElement,
+  type: JSXRuntimeElement,
   props: Record<string, unknown> | null,
   _key?: unknown,
   _isStaticChildren?: boolean,

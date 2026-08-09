@@ -1,4 +1,11 @@
-/** The runtime brand shared by all immutable HTML instruction values. */
+/**
+ * The runtime brand shared by all immutable HTML instruction values.
+ *
+ * This symbol deliberately stays outside the package entrypoints so consumers
+ * cannot mark arbitrary objects as trusted markup.
+ *
+ * @internal
+ */
 export const HTML_NODE: unique symbol = Symbol.for(
   "@bastianplsfix/html.node",
 );
@@ -9,6 +16,11 @@ export const HTML_NODE: unique symbol = Symbol.for(
  * Plain strings are never `Html`; the renderer always treats them as text.
  */
 export interface Html {
+  /**
+   * Runtime-only authenticity marker.
+   *
+   * @ignore
+   */
   readonly [HTML_NODE]: true;
 }
 
@@ -35,8 +47,11 @@ export type Component<Props = Record<never, never>> = (
 
 /** Source metadata supplied by development JSX transforms. */
 export interface SourceLocation {
+  /** Source file containing the JSX expression. */
   readonly fileName?: string;
+  /** One-based source line, when supplied by the transform. */
   readonly lineNumber?: number;
+  /** One-based source column, when supplied by the transform. */
   readonly columnNumber?: number;
 }
 

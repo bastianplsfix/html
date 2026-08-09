@@ -896,7 +896,11 @@ type GeneralSVGIntrinsicElements = {
   [Tag in GeneralSVGTag]: SVGAttributes;
 };
 
-/** Types consumed by TypeScript's automatic JSX transform. */
+/**
+ * Types consumed internally by TypeScript's automatic JSX transform.
+ *
+ * @internal
+ */
 // deno-lint-ignore no-namespace
 export namespace JSX {
   /** The immutable instruction value produced by a JSX expression. */

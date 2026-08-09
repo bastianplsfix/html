@@ -3,10 +3,15 @@ export type DangerousUrlScheme = "javascript" | "vbscript";
 
 /** A non-fatal security diagnostic discovered while inspecting an attribute. */
 export interface SecurityWarning {
+  /** Stable identifier suitable for programmatic warning handling. */
   readonly code: "dangerous-url-scheme";
+  /** HTML attribute that caused the warning. */
   readonly attributeName: string;
+  /** Executable URL scheme found after browser-style normalization. */
   readonly scheme: DangerousUrlScheme;
+  /** Original, unmodified attribute value. */
   readonly value: string;
+  /** Human-readable explanation of the warning and its security boundary. */
   readonly message: string;
 }
 
