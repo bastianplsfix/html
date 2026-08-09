@@ -3,8 +3,18 @@
 Typed, server-only TSX templates for Deno. No virtual DOM, hydration, hooks, or
 client runtime—just safe HTML values rendered to strings.
 
-The package is in its initial 0.1 implementation phase. See
-[DESIGN.md](./DESIGN.md) for the full architecture and roadmap.
+[Documentation](https://bastianplsfix-html.bs.deno.net) ·
+[JSR](https://jsr.io/@bastianplsfix/html) · [Design](./DESIGN.md)
+
+The `0.x` API is usable but still evolving. Rendering and escaping semantics are
+treated as compatibility contracts; new public capabilities land in minor
+releases.
+
+## Install
+
+```sh
+deno add jsr:@bastianplsfix/html@^0.1.0
+```
 
 ## Configure Deno
 
@@ -57,6 +67,9 @@ Plain strings are always escaped. Bypassing escaping requires an explicit
 `unsafeHTML(trustedMarkup)` call. Use `scriptJSON(value)` for JSON embedded in a
 `<script>` raw-text element.
 
+See the [security model](https://bastianplsfix-html.bs.deno.net/security) for
+the trust boundary and context-specific guidance.
+
 ## Response helper
 
 ```tsx
@@ -79,3 +92,13 @@ deno task docs
 ```
 
 Then open <http://localhost:8000>.
+
+## Scope
+
+This project renders HTML. Routing, middleware, sessions, asset pipelines,
+hydration, browser state, and client bundling deliberately remain outside the
+core package.
+
+Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md)
+before opening a change and report vulnerabilities according to
+[SECURITY.md](./SECURITY.md).

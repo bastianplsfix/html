@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+
+      - name: Install locked dependencies
+        run: deno ci
+
+      - name: Check package and documentation
+        run: deno task check
+
+      - name: Install example dependencies
+        run: deno ci
+        working-directory: examples/hello
+
+      - name: Check published-package example
+        run: deno task check
+        working-directory: examples/hello

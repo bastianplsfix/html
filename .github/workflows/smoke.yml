@@ -1,0 +1,88 @@
+name: Production smoke test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Check deployed documentation
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check production pages and stylesheet
+        env:
+          SITE_URL: https://bastianplsfix-html.bs.deno.net
+        run: |
+          deno eval '
+            const base = Deno.env.get("SITE_URL");
+            if (!base) throw new Error("SITE_URL is not set");
+
+            async function check() {
+              const page = await fetch(`${base}/`, {
+                signal: AbortSignal.timeout(10_000),
+              });
+              const body = await page.text();
+              if (!page.ok) throw new Error(`Home page returned ${page.status}`);
+              if (!page.headers.get("content-type")?.includes("text/html")) {
+                throw new Error("Home page did not return HTML");
+              }
+              if (!body.includes("@bastianplsfix/html")) {
+                throw new Error("Home page is missing the package name");
+              }
+
+              const stylesheet = await fetch(`${base}/styles.css`, {
+                signal: AbortSignal.timeout(10_000),
+              });
+              const css = await stylesheet.text();
+              if (!stylesheet.ok) {
+                throw new Error(`Stylesheet returned ${stylesheet.status}`);
+              }
+              if (!stylesheet.headers.get("content-type")?.includes("text/css")) {
+                throw new Error("Stylesheet did not return CSS");
+              }
+              if (!css.includes("--bs-background-1")) {
+                throw new Error("Stylesheet is missing the expected color tokens");
+              }
+            }
+
+            let lastError;
+            for (let attempt = 1; attempt <= 20; attempt++) {
+              try {
+                await check();
+                console.log(`Production smoke test passed on attempt ${attempt}`);
+                Deno.exit(0);
+              } catch (error) {
+                lastError = error;
+                console.error(`Attempt ${attempt} failed:`, error);
+                if (attempt < 20) {
+                  await new Promise((resolve) => setTimeout(resolve, 15_000));
+                }
+              }
+            }
+
+            throw lastError;
+          '
