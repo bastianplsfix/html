@@ -50,6 +50,11 @@ Once the package is published, a consumer can configure Deno like this:
   },
   "imports": {
     "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["jsx-key"]
+    }
   }
 }
 ```
@@ -58,6 +63,10 @@ Skipping `script` and `style` leaves those raw-text elements for the runtime.
 This setting is required for the runtime to enforce their context-specific child
 rules; plain values are rejected and callers must use `scriptJSON()` or an
 explicit trusted raw instruction.
+
+Deno's `jsx-key` lint rule targets reconciling UI renderers. It should be
+disabled for this runtime because server component lists have no identity or
+reconciliation semantics.
 
 ## Intended usage
 

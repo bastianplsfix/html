@@ -7,6 +7,11 @@ export const CONFIG_CODE = [
   "  },",
   '  "imports": {',
   '    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"',
+  "  },",
+  '  "lint": {',
+  '    "rules": {',
+  '      "exclude": ["jsx-key"]',
+  "    }",
   "  }",
   "}",
 ].join("\n");

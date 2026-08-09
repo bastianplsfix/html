@@ -12,6 +12,13 @@
     "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.1.0",
     "@std/assert": "jsr:@std/assert@^1.0.19"
   },
+  "lint": {
+    "rules": {
+      "exclude": [
+        "jsx-key"
+      ]
+    }
+  },
   "minimumDependencyAge": 0,
   "tasks": {
     "check": "deno fmt --check && deno lint && deno check main.tsx main_test.tsx && deno test",

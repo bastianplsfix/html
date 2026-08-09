@@ -28,9 +28,18 @@ deno add jsr:@bastianplsfix/html@^0.2.0
   },
   "imports": {
     "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["jsx-key"]
+    }
   }
 }
 ```
+
+The renderer has no reconciliation, so JSX keys have no meaning. Excluding
+Deno's client-oriented `jsx-key` lint rule keeps mapped server components free
+of false warnings.
 
 ## Render a view
 

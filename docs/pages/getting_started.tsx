@@ -21,6 +21,11 @@ export function GettingStartedPage(): Html {
           as runtime elements so their raw-text contexts remain explicit.
         </p>
         <CodeBlock code={CONFIG_CODE} language="json" filename="deno.json" />
+        <p>
+          The configuration also disables Deno's <code>jsx-key</code>{" "}
+          rule. This renderer never reconciles component lists, so keys have no
+          server-side meaning.
+        </p>
       </section>
 
       <section id="view">
