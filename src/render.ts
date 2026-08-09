@@ -57,7 +57,6 @@ export class RenderError extends Error {
 }
 
 interface RenderContext {
-  readonly chunks: string[];
   readonly signal?: AbortSignal;
 }
 
@@ -67,19 +66,121 @@ export async function renderToString(
   options: RenderOptions = {},
 ): Promise<string> {
   const context: RenderContext = {
-    chunks: [],
     ...(options.signal ? { signal: options.signal } : {}),
   };
+  const chunks: string[] = [];
 
-  await renderValue(view, context);
+  for await (const chunk of renderValue(view, context)) {
+    throwIfAborted(context.signal);
+    chunks.push(chunk);
+  }
   throwIfAborted(context.signal);
-  return context.chunks.join("");
+  return chunks.join("");
 }
 
-async function renderValue(
+/** Render a value as ordered UTF-8 chunks. */
+export function renderToStream(
+  view: Renderable,
+  options: RenderOptions = {},
+): ReadableStream<Uint8Array> {
+  const cancellation = new AbortController();
+  const context: RenderContext = { signal: cancellation.signal };
+  const iterator = renderValue(view, context)[Symbol.asyncIterator]();
+  const encoder = new StreamingUtf8Encoder();
+  let removeAbortListener = () => {};
+  let closing: Promise<void> | undefined;
+  let cancelled = false;
+  let settled = false;
+
+  const closeIterator = (): Promise<void> => {
+    if (!closing) {
+      closing = iterator.return
+        ? iterator.return().then(() => {})
+        : Promise.resolve();
+    }
+    return closing;
+  };
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      removeAbortListener = listenForAbort(options.signal, () => {
+        const reason = options.signal?.reason;
+        cancellation.abort(reason);
+
+        if (!settled) {
+          settled = true;
+          controller.error(reason);
+          removeAbortListener();
+          // The signal's reason remains the stream error even if an iterator's
+          // cleanup later fails.
+          void closeIterator().catch(() => {});
+        }
+      });
+    },
+
+    async pull(controller) {
+      if (settled) {
+        return;
+      }
+
+      try {
+        // Empty strings and a trailing high surrogate do not produce bytes yet.
+        // Continue only until one chunk is available so the consumer controls
+        // the pace of traversal through normal stream backpressure.
+        while (!cancelled) {
+          throwIfAborted(context.signal);
+          const result = await iterator.next();
+          if (settled || cancelled) {
+            return;
+          }
+          if (result.done) {
+            const finalBytes = encoder.finish();
+            if (finalBytes.byteLength > 0) {
+              controller.enqueue(finalBytes);
+            }
+            controller.close();
+            settled = true;
+            removeAbortListener();
+            return;
+          }
+
+          const bytes = encoder.encode(result.value);
+          if (bytes.byteLength > 0) {
+            controller.enqueue(bytes);
+            return;
+          }
+        }
+      } catch (error) {
+        settled = true;
+        removeAbortListener();
+        if (!cancelled) {
+          controller.error(error);
+        }
+      }
+    },
+
+    async cancel(reason) {
+      if (settled) {
+        return;
+      }
+
+      cancelled = true;
+      cancellation.abort(reason);
+
+      try {
+        await closeIterator();
+      } finally {
+        settled = true;
+        removeAbortListener();
+      }
+    },
+  }, { highWaterMark: 0 });
+}
+
+async function* renderValue(
   value: unknown,
   context: RenderContext,
-): Promise<void> {
+): AsyncGenerator<string, void, void> {
   throwIfAborted(context.signal);
 
   if (value === null || value === undefined || typeof value === "boolean") {
@@ -88,11 +189,11 @@ async function renderValue(
 
   switch (typeof value) {
     case "string":
-      context.chunks.push(escapeText(value));
+      yield escapeText(value);
       return;
     case "number":
     case "bigint":
-      context.chunks.push(String(value));
+      yield String(value);
       return;
     case "function":
       throw unsupportedValue("function", value);
@@ -101,28 +202,25 @@ async function renderValue(
   }
 
   if (isHtml(value)) {
-    await renderNode(value, context);
+    yield* renderNode(value, context);
     return;
   }
 
   if (isPromiseLike(value)) {
-    const resolved = await value;
+    const resolved = await awaitWithSignal(value, context.signal);
     throwIfAborted(context.signal);
-    await renderValue(resolved, context);
+    yield* renderValue(resolved, context);
     return;
   }
 
   if (isAsyncIterable(value)) {
-    for await (const child of value) {
-      await renderValue(child, context);
-      throwIfAborted(context.signal);
-    }
+    yield* renderAsyncIterable(value, context);
     return;
   }
 
   if (isIterable(value)) {
     for (const child of value) {
-      await renderValue(child, context);
+      yield* renderValue(child, context);
       throwIfAborted(context.signal);
     }
     return;
@@ -131,22 +229,22 @@ async function renderValue(
   throw unsupportedValue("object", value);
 }
 
-async function renderNode(
+async function* renderNode(
   node: HtmlNode,
   context: RenderContext,
-): Promise<void> {
+): AsyncGenerator<string, void, void> {
   switch (node.nodeType) {
     case "raw":
-      context.chunks.push(node.value);
+      yield node.value;
       return;
     case "escaped":
-      await renderValue(node.value, context);
+      yield* renderValue(node.value, context);
       return;
     case "attribute":
-      context.chunks.push(serializeAttribute(node.name, node.value));
+      yield serializeAttribute(node.name, node.value);
       return;
     case "fragment":
-      await renderValue(node.children, context);
+      yield* renderValue(node.children, context);
       return;
     case "template":
       if (node.strings.length !== node.values.length + 1) {
@@ -154,24 +252,24 @@ async function renderNode(
       }
 
       for (let index = 0; index < node.values.length; index++) {
-        context.chunks.push(node.strings[index]);
-        await renderValue(node.values[index], context);
+        yield node.strings[index];
+        yield* renderValue(node.values[index], context);
       }
-      context.chunks.push(node.strings[node.strings.length - 1]);
+      yield node.strings[node.strings.length - 1];
       return;
     case "component":
-      await renderComponent(node, context);
+      yield* renderComponent(node, context);
       return;
     case "element":
-      await renderElement(node, context);
+      yield* renderElement(node, context);
       return;
   }
 }
 
-async function renderComponent(
+async function* renderComponent(
   node: ComponentNode,
   context: RenderContext,
-): Promise<void> {
+): AsyncGenerator<string, void, void> {
   const frame: ComponentFrame = {
     name: node.component.name || "Anonymous",
     ...(node.source ? { source: node.source } : {}),
@@ -179,21 +277,24 @@ async function renderComponent(
 
   try {
     throwIfAborted(context.signal);
-    await renderValue(node.component(node.props), context);
+    yield* renderValue(node.component(node.props), context);
   } catch (error) {
+    if (context.signal?.aborted && error === context.signal.reason) {
+      throw error;
+    }
     throw addComponentFrame(error, frame);
   }
 }
 
-async function renderElement(
+async function* renderElement(
   node: ElementNode,
   context: RenderContext,
-): Promise<void> {
+): AsyncGenerator<string, void, void> {
   assertValidTagName(node.tagName);
   const tagName = node.tagName;
   const children = node.props.children;
 
-  context.chunks.push(`<${tagName}`);
+  yield `<${tagName}`;
   for (const [name, value] of Object.entries(node.props)) {
     if (name === "children") {
       continue;
@@ -201,10 +302,11 @@ async function renderElement(
 
     const attribute = serializeAttribute(name, value);
     if (attribute.length > 0) {
-      context.chunks.push(" ", attribute);
+      yield " ";
+      yield attribute;
     }
   }
-  context.chunks.push(">");
+  yield ">";
 
   if (VOID_ELEMENTS.has(tagName.toLowerCase())) {
     if (hasRenderableChildren(children)) {
@@ -213,8 +315,34 @@ async function renderElement(
     return;
   }
 
-  await renderValue(children, context);
-  context.chunks.push(`</${tagName}>`);
+  yield* renderValue(children, context);
+  yield `</${tagName}>`;
+}
+
+async function* renderAsyncIterable(
+  value: AsyncIterable<unknown>,
+  context: RenderContext,
+): AsyncGenerator<string, void, void> {
+  const iterator = value[Symbol.asyncIterator]();
+  let completed = false;
+
+  try {
+    while (true) {
+      throwIfAborted(context.signal);
+      const result = await awaitWithSignal(iterator.next(), context.signal);
+      if (result.done) {
+        completed = true;
+        return;
+      }
+
+      yield* renderValue(result.value, context);
+      throwIfAborted(context.signal);
+    }
+  } finally {
+    if (!completed && typeof iterator.return === "function") {
+      await iterator.return();
+    }
+  }
 }
 
 function hasRenderableChildren(value: unknown): boolean {
@@ -243,6 +371,78 @@ function isIterable(value: object): value is Iterable<unknown> {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   signal?.throwIfAborted();
+}
+
+function awaitWithSignal<T>(
+  value: PromiseLike<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) {
+    return Promise.resolve(value);
+  }
+
+  signal.throwIfAborted();
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(signal.reason);
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(value).then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function listenForAbort(
+  source: AbortSignal | undefined,
+  listener: () => void,
+): () => void {
+  if (!source) {
+    return () => {};
+  }
+
+  if (source.aborted) {
+    listener();
+    return () => {};
+  }
+
+  source.addEventListener("abort", listener, { once: true });
+  return () => source.removeEventListener("abort", listener);
+}
+
+class StreamingUtf8Encoder {
+  readonly #encoder = new TextEncoder();
+  #pendingHighSurrogate = "";
+
+  encode(chunk: string): Uint8Array {
+    let value = this.#pendingHighSurrogate + chunk;
+    this.#pendingHighSurrogate = "";
+
+    if (value.length > 0) {
+      const finalCodeUnit = value.charCodeAt(value.length - 1);
+      if (finalCodeUnit >= 0xD800 && finalCodeUnit <= 0xDBFF) {
+        this.#pendingHighSurrogate = value[value.length - 1];
+        value = value.slice(0, -1);
+      }
+    }
+
+    return value.length === 0 ? new Uint8Array() : this.#encoder.encode(value);
+  }
+
+  finish(): Uint8Array {
+    const value = this.#pendingHighSurrogate;
+    this.#pendingHighSurrogate = "";
+    return value.length === 0 ? new Uint8Array() : this.#encoder.encode(value);
+  }
 }
 
 function unsupportedValue(kind: string, value: unknown): RenderError {
