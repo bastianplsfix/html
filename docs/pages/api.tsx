@@ -12,7 +12,7 @@ export function ApiPage(): Html {
 
       <div class="import-path">
         <span>Primary import</span>
-        <code>jsr:@bastianplsfix/html@^0.1.0</code>
+        <code>jsr:@bastianplsfix/html@^0.2.0</code>
       </div>
 
       <ApiEntry

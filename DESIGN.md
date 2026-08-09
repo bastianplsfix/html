@@ -49,7 +49,7 @@ Once the package is published, a consumer can configure Deno like this:
     "jsxPrecompileSkipElements": ["script", "style"]
   },
   "imports": {
-    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.1.0"
+    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"
   }
 }
 ```
@@ -751,7 +751,8 @@ security work below build on the same value semantics.
 - [x] development warnings for dangerous URL schemes;
 - [x] dynamic inline-event and `srcdoc` rejection;
 - [x] stricter `script` and `style` raw-text policies;
-- [x] broader HTML and SVG tag coverage sourced from Deno's DOM maps;
+- [x] broader HTML and SVG tag coverage checked against Deno's TypeScript DOM
+      maps;
 - [x] explicit inline SVG coverage with serialized attribute names;
 - [x] serializable custom-element attribute refinements;
 - [x] baseline buffered and streaming benchmarks;

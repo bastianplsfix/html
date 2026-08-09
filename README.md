@@ -4,7 +4,8 @@ Typed, server-only TSX templates for Deno. No virtual DOM, hydration, hooks, or
 client runtime—just safe HTML values rendered to strings or streams.
 
 [Documentation](https://bastianplsfix-html.bs.deno.net) ·
-[JSR](https://jsr.io/@bastianplsfix/html) · [Design](./DESIGN.md)
+[JSR](https://jsr.io/@bastianplsfix/html) · [Changelog](./CHANGELOG.md) ·
+[Design](./DESIGN.md)
 
 The `0.x` API is usable but still evolving. Rendering and escaping semantics are
 treated as compatibility contracts; new public capabilities land in minor
@@ -13,7 +14,7 @@ releases.
 ## Install
 
 ```sh
-deno add jsr:@bastianplsfix/html@^0.1.0
+deno add jsr:@bastianplsfix/html@^0.2.0
 ```
 
 ## Configure Deno
@@ -26,7 +27,7 @@ deno add jsr:@bastianplsfix/html@^0.1.0
     "jsxPrecompileSkipElements": ["script", "style"]
   },
   "imports": {
-    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.1.0"
+    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"
   }
 }
 ```

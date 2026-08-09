@@ -6,7 +6,7 @@ export const CONFIG_CODE = [
   '    "jsxPrecompileSkipElements": ["script", "style"]',
   "  },",
   '  "imports": {',
-  '    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.1.0"',
+  '    "@bastianplsfix/html": "jsr:@bastianplsfix/html@^0.2.0"',
   "  }",
   "}",
 ].join("\n");

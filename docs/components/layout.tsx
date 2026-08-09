@@ -71,7 +71,7 @@ export function DocsLayout(
               <nav aria-label="Documentation">{renderNavigation(path)}</nav>
               <div class="sidebar-note">
                 <span class="status-dot" aria-hidden="true"></span>
-                <span>0.1 foundation</span>
+                <span>0.2</span>
               </div>
             </aside>
             <main id="content" class="docs-content">
