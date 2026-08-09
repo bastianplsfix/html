@@ -127,11 +127,12 @@ Deno.test("inline event attributes fail closed after spreads bypass JSX types", 
   }
 
   const spread = { oNcLiC: `alert("executed")` };
-  await assertRejects(
+  const spreadError = await assertRejects(
     () => renderToString(<button {...spread}>Unsafe</button>),
-    TypeError,
+    RenderError,
     "inline event handlers execute JavaScript",
   );
+  assert(spreadError.cause instanceof TypeError);
 
   assertEquals(serializeAttribute("onclick", false), "");
 });
@@ -146,11 +147,12 @@ Deno.test("srcdoc fails closed because escaped attributes are parsed as HTML", a
   }
 
   const spread = { srcdoc: `<img src=x onerror="alert(1)">` };
-  await assertRejects(
+  const spreadError = await assertRejects(
     () => renderToString(<iframe {...spread}></iframe>),
-    TypeError,
+    RenderError,
     "parse its value as HTML after decoding character references",
   );
+  assert(spreadError.cause instanceof TypeError);
 
   assertEquals(serializeAttribute("srcdoc", undefined), "");
 });
