@@ -107,8 +107,12 @@ export function ConceptsPage(): Html {
         <CodeBlock code={STREAM_CODE} filename="main.tsx" />
         <p>
           Cancelling the reader or aborting the supplied signal stops traversal
-          and closes an active async iterator. Async work outside the renderer
-          should observe the same signal when it needs its own cancellation.
+          and attempts to close active iterators. Cancellation is cooperative:
+          the renderer stops waiting for pending work, while the work itself
+          should observe the same signal when it needs to stop. Signal aborts
+          stay prompt. Reader cancellation waits for finite iterator cleanup, so
+          it remains pending if an iterator's <code>return()</code>{" "}
+          never settles.
         </p>
         <Callout title="The response may already be committed">
           <p>

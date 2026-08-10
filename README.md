@@ -117,7 +117,11 @@ return new Response(body, {
 
 Streaming emits ordered UTF-8 chunks and advances traversal in response to
 consumer demand. Cancelling the stream or aborting its signal stops traversal
-and closes an active async iterator. It does not render unresolved components
+and attempts to close active iterators. Cancellation is cooperative: the
+renderer can stop awaiting a pending promise, but the underlying operation must
+observe the same signal to stop its own work. Signal aborts stay prompt;
+`reader.cancel()` waits for finite iterator cleanup and can remain pending when
+an iterator's `return()` never settles. It does not render unresolved components
 out of order. Once response bytes have been sent, later rendering failures
 cannot change the HTTP status; use `renderToString()` when preflight error
 handling matters more than progressive output.

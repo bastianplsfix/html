@@ -342,12 +342,17 @@ so normal `ReadableStream` backpressure controls renderer progress. Promises and
 async iterables still resolve in document order; there is no Suspense-style or
 out-of-order completion model.
 
-Cancelling the stream or aborting `options.signal` stops traversal and calls
-`return()` on an active async iterator. This cleans up renderer-owned iteration;
-arbitrary async work must still observe an application signal if it needs its
-own cancellation. Once the first bytes are sent, the application cannot replace
-the response with another HTTP status, and later rendering failures surface as
-stream errors. That tradeoff stays explicit.
+Cancelling the stream or aborting `options.signal` stops traversal and attempts
+to call `return()` on active iterators. Cancellation is cooperative: the
+renderer stops awaiting a pending promise, but cannot stop the underlying work
+unless that work observes the application signal itself. Signal aborts preserve
+the exact abort reason and remain prompt while uncooperative cleanup finishes in
+the background. `reader.cancel()` waits for asynchronous iterator cleanup, so a
+`return()` that never settles also leaves cancellation pending. Cleanup failures
+never replace the primary render, abort, or cancellation failure. Once the first
+bytes are sent, the application cannot replace the response with another HTTP
+status, and later rendering failures surface as stream errors. That tradeoff
+stays explicit.
 
 ## Optional Response adapter
 
@@ -355,14 +360,18 @@ The core renderer remains HTTP-independent. The `/response` entrypoint offers a
 small convenience:
 
 ```tsx
-import { html } from "@bastianplsfix/html/response";
+import { html, streamHtml } from "@bastianplsfix/html/response";
 
 return await html(<HomePage />);
+
+return streamHtml(<HomePage />, { signal: request.signal });
 ```
 
-It renders to a string, preserves `ResponseInit`, and sets
-`text/html; charset=utf-8` only when the caller did not supply a content type.
-This pairs naturally with Hectoday HTTP without coupling the renderer to it.
+`html()` renders to a string; `streamHtml()` preserves streaming. Both accept
+`HtmlResponseInit`, which combines `ResponseInit` with the renderer's signal and
+warning callback, and set `text/html; charset=utf-8` only when the caller did
+not supply a content type. This pairs naturally with Hectoday HTTP without
+coupling the renderer to it.
 
 ## Security invariants
 
@@ -755,6 +764,10 @@ security work below build on the same value semantics.
 - [x] `renderToStream()` with ordered UTF-8 output;
 - [x] streaming backpressure tests;
 - [x] abort-aware iterator cleanup;
+- [x] adversarial thenable and iterator protocol tests;
+- [x] pending-operation and cancellation race tests;
+- [x] Unicode property and large-payload escaping tests;
+- [x] WHATWG HTML parser conformance tests;
 - [ ] richer development source locations under precompile;
 - [x] source-aware component diagnostics under `react-jsxdev`;
 - [x] development warnings for dangerous URL schemes;
@@ -765,6 +778,8 @@ security work below build on the same value semantics.
 - [x] explicit inline SVG coverage with serialized attribute names;
 - [x] serializable custom-element attribute refinements;
 - [x] baseline buffered and streaming benchmarks;
+- [x] detailed time-to-first-byte, memory, chunk, slow-consumer, and
+      cancellation profiling;
 - [ ] synchronous fast paths.
 
 ## Contract-defining test

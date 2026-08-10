@@ -42,8 +42,10 @@ export function ApiPage(): Html {
       >
         <p>
           Produces ordered UTF-8 chunks. Traversal follows consumer demand, and
-          cancellation closes an active async iterator. Rendering errors after
-          bytes have been consumed surface as stream errors.
+          cancellation attempts to close active iterators. Signal aborts remain
+          prompt, while reader cancellation waits for finite asynchronous
+          cleanup. Rendering errors after bytes have been consumed surface as
+          stream errors.
         </p>
       </ApiEntry>
 
@@ -113,7 +115,7 @@ export function ApiPage(): Html {
         signature={[
           "function html(",
           "  view: Renderable,",
-          "  init?: ResponseInit,",
+          "  init?: HtmlResponseInit,",
           "): Promise<Response>",
         ].join("\n")}
       >
@@ -122,6 +124,43 @@ export function ApiPage(): Html {
           <code>@bastianplsfix/html/response</code>. Buffers a view into a Web
           Standard response and supplies the HTML content type unless the caller
           already set one.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="streamHtml"
+        signature={[
+          "function streamHtml(",
+          "  view: Renderable,",
+          "  init?: HtmlResponseInit,",
+          "): Response",
+        ].join("\n")}
+      >
+        <p>
+          Available from{" "}
+          <code>@bastianplsfix/html/response</code>. Creates a response
+          immediately and exposes rendering failures through its body stream.
+          {" "}
+          <code>HtmlResponseInit</code> combines standard response options with
+          {" "}
+          <code>signal</code> and <code>onWarning</code>.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="RenderError"
+        signature={[
+          "class RenderError extends Error {",
+          "  readonly detail: string;",
+          "  readonly componentStack: readonly ComponentFrame[];",
+          "  readonly element?: ElementFrame;",
+          "}",
+        ].join("\n")}
+      >
+        <p>
+          Normalizes rendering failures while retaining their original
+          <code>cause</code>, component frames, and intrinsic-element context.
+          Abort reasons are preserved directly instead of being wrapped.
         </p>
       </ApiEntry>
 
