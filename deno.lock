@@ -1,11 +1,15 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@bastianplsfix/html@0.1.0": "0.1.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:parse5@8.0.1": "8.0.1"
   },
   "jsr": {
+    "@bastianplsfix/html@0.1.0": {
+      "integrity": "8d657d51de9d5e6a58bd6449472a0c3a33f546c36617a3528475400859832408"
+    },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [

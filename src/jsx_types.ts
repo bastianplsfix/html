@@ -3151,3 +3151,44 @@ export namespace JSX {
     xmp: HTMLAttributes;
   }
 }
+
+/** Props accepted by an intrinsic HTML, SVG, or custom-element tag. */
+export type IntrinsicElementProps<
+  TagName extends keyof JSX.IntrinsicElements,
+> = JSX.IntrinsicElements[TagName];
+
+/**
+ * Serializable attributes for a custom element.
+ *
+ * Use this while augmenting the `JSX.IntrinsicElements` interface in
+ * `@bastianplsfix/html/jsx-runtime`. Function, object, symbol, and
+ * inline-event values become `never`, so augmentation cannot weaken
+ * runtime validation.
+ *
+ * @example
+ * ```ts
+ * import type { CustomElementProps } from "@bastianplsfix/html";
+ *
+ * declare module "@bastianplsfix/html/jsx-runtime" {
+ *   namespace JSX {
+ *     interface IntrinsicElements {
+ *       "status-pill": CustomElementProps<{
+ *         variant?: "neutral" | "success";
+ *       }>;
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export type CustomElementProps<Props extends object> =
+  & IntrinsicElementProps<"div">
+  & { [Name: `${string}-${string}`]: AttributeValue }
+  & {
+    readonly [Name in keyof Props]: Name extends "children"
+      ? Props[Name] extends Renderable ? Props[Name] : never
+      : Name extends string
+        ? Lowercase<Name> extends `on${string}` | "srcdoc" ? never
+        : Props[Name] extends AttributeValue ? Props[Name]
+        : never
+      : never;
+  };

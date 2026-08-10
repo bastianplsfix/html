@@ -1,5 +1,11 @@
 const VALID_TAG_NAME = /^[A-Za-z][A-Za-z0-9._:-]*$/u;
 const INLINE_EVENT_HANDLER = /^on/iu;
+const BOOLEANISH_HTML_ATTRIBUTES = new Set([
+  "contenteditable",
+  "draggable",
+  "spellcheck",
+  "writingsuggestions",
+]);
 
 /** Escape a value for an HTML text context. */
 export function escapeText(value: string): string {
@@ -48,15 +54,26 @@ export function assertValidAttributeName(name: string): void {
 export function serializeAttribute(name: string, value: unknown): string {
   assertValidAttributeName(name);
 
+  const normalizedName = name.toLowerCase();
+
   if (name === "key") {
     return "";
   }
 
-  if (value === null || value === undefined || value === false) {
+  if (value === null || value === undefined) {
     return "";
   }
 
-  const normalizedName = name.toLowerCase();
+  if (
+    typeof value === "boolean" &&
+    BOOLEANISH_HTML_ATTRIBUTES.has(normalizedName)
+  ) {
+    return `${name}="${value}"`;
+  }
+
+  if (value === false) {
+    return "";
+  }
 
   if (INLINE_EVENT_HANDLER.test(normalizedName)) {
     throw new TypeError(

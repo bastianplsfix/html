@@ -18,6 +18,22 @@ import {
   jsx as runtimeJsx,
   jsxTemplate as runtimeJsxTemplate,
 } from "../jsx-runtime.ts";
+import { rawNode as copiedRawNode } from "../src/model.ts?copy=runtime";
+
+function legacySpecifier(subpath = ""): string {
+  return ["jsr:", "@bastianplsfix/html", "@0.1.0", subpath].join("");
+}
+
+const { unsafeHTML: legacyUnsafeHTML } = await import(
+  legacySpecifier()
+) as {
+  unsafeHTML(value: string): unknown;
+};
+const { jsx: legacyJsx } = await import(
+  legacySpecifier("/jsx-runtime")
+) as {
+  jsx(type: string, props: Record<string, unknown> | null): unknown;
+};
 
 function malformInstruction(
   base: Html,
@@ -86,6 +102,20 @@ Deno.test("HTML-native and boolean attributes serialize predictably", async () =
   assertEquals(
     await renderToString(view),
     `<form class="card"><label for="email">Email</label><input id="email" type="email" value="&quot; onmouseover=&quot;alert(1)" readonly data-field="email"></form>`,
+  );
+});
+
+Deno.test("boolean-like enumerated attributes serialize explicit tokens", async () => {
+  assertEquals(
+    await renderToString(
+      <div
+        contenteditable={false}
+        draggable
+        spellcheck={false}
+        writingsuggestions
+      />,
+    ),
+    '<div contenteditable="false" draggable="true" spellcheck="false" writingsuggestions="true"></div>',
   );
 });
 
@@ -213,17 +243,33 @@ Deno.test("spread attributes are validated at render time", async () => {
   );
 });
 
-Deno.test("trusted instruction brands cannot be recreated globally", async () => {
+Deno.test("the shared protocol brand does not admit malformed instructions", async () => {
   const forged = {
     [Symbol.for("@bastianplsfix/html.node")]: true,
     nodeType: "raw",
-    value: "<script>not trusted</script>",
+    value: { markup: "<script>not trusted</script>" },
   } as unknown as Renderable;
 
   await assertRejects(
     () => renderToString(forged),
     RenderError,
-    "Cannot render an object as a child",
+    "Received a malformed raw HTML instruction",
+  );
+});
+
+Deno.test("the v1 protocol composes across package copies", async () => {
+  const legacyView = legacyJsx("section", {
+    class: "legacy",
+    children: ["<escaped>", legacyUnsafeHTML("<b>trusted library</b>")],
+  });
+
+  assertEquals(
+    await renderToString(legacyView as unknown as Renderable),
+    '<section class="legacy">&lt;escaped&gt;<b>trusted library</b></section>',
+  );
+  assertEquals(
+    await renderToString(copiedRawNode("<i>independent 0.2 copy</i>")),
+    "<i>independent 0.2 copy</i>",
   );
 });
 
