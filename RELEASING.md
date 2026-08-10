@@ -2,13 +2,16 @@
 
 Releases are published from GitHub Actions so JSR can attach OIDC provenance.
 The JSR package must be linked to `bastianplsfix/html` in the package settings
-before the workflow can authenticate.
+before the workflow can authenticate. Configure the repository's `jsr` GitHub
+environment with tag restrictions and required reviewers if the organization
+uses protected releases.
 
 ## Prepare a release
 
 1. Work from a clean, current `main` branch.
-2. Update `deno.json`, `CHANGELOG.md`, documentation install examples, and the
-   standalone example to the same version.
+2. Update `deno.json`, `CHANGELOG.md`, and documentation install examples to the
+   same version. Leave the standalone published-package example on the latest
+   version that actually exists in JSR until the new release is available.
 3. Run the reproducible local checks:
 
    ```sh
@@ -33,11 +36,13 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-The tag workflow verifies the version and changelog section, repeats the full
-checks and JSR dry-run, publishes with provenance, then creates a GitHub release
-from that version's changelog notes. Do not publish the same version manually;
-JSR versions are immutable.
+The tag workflow verifies that the tagged commit is on `main`, checks the
+version and changelog section, repeats the full checks and JSR dry-run, then
+publishes with provenance. Separate resumable jobs smoke-test the exact
+published version and create or update a GitHub release from the changelog
+notes. Do not publish the same version manually; JSR versions are immutable.
 
 After the workflow completes, verify the package page, provenance, generated API
 documentation, GitHub release, standalone published-package example, and the
-production documentation smoke check.
+production documentation smoke check. Then advance and lock the standalone
+example to the newly published version in a follow-up commit.
