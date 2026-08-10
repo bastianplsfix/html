@@ -1,4 +1,5 @@
 import type { Children, Html } from "@bastianplsfix/html";
+import type { AriaAttributes, HTMLAttributes } from "../src/jsx_types.ts";
 
 function Layout(
   { title, children }: { title: string; children: Children },
@@ -21,15 +22,39 @@ async function AsyncMessage({ value }: { value: string }) {
 const valid = (
   <Layout title="Types">
     <search>
-      <form accept-charset="utf-8">
+      <form accept-charset="utf-8" rel="search">
         <input
           type="search"
           inputmode="search"
           enterkeyhint="search"
           writingsuggestions="false"
+          capture="environment"
         />
       </form>
     </search>
+    <selectedcontent />
+    <input type="color" alpha colorspace="display-p3" />
+    <template shadowrootmode="open" shadowrootclonable />
+    <a
+      attributionsrc="https://metrics.example/register-source"
+      download
+      href="/source"
+    >
+      Source
+    </a>
+    <iframe credentialless src="https://example.com"></iframe>
+    <video controlslist="nodownload" disableremoteplayback></video>
+    <div
+      role="switch checkbox"
+      aria-atomic="true"
+      aria-braillelabel="Enabled"
+      aria-description="Controls the setting"
+      aria-live="polite"
+      aria-relevant="additions text"
+      aria-rowindextext="Row one"
+    />
+    <div role="doc-pagebreak" />
+    <div contenteditable draggable spellcheck writingsuggestions />
     <label for="email">Email</label>
     <input
       id="email"
@@ -57,6 +82,7 @@ const valid = (
         </linearGradient>
         <filter id="blur" filterUnits="userSpaceOnUse">
           <feGaussianBlur in="SourceGraphic" stdDeviation={2} />
+          <feDropShadow dx={1} dy="2px" stdDeviation="2 3" />
           <feColorMatrix type="matrix" values="1 0 0 0 0" />
         </filter>
         <clipPath id="clip" clipPathUnits="userSpaceOnUse">
@@ -122,8 +148,29 @@ const invalidSvgEvent = <svg onClick={() => {}} />;
 // @ts-expect-error unknown SVG attributes are rejected.
 const invalidSvgAttribute = <path definitelyNotSvg="value" />;
 
+// @ts-expect-error SVG attributes are scoped to the elements that define them.
+const invalidScopedSvgAttribute = <circle stdDeviation={2} />;
+
+// @ts-expect-error SVG attribute casing is the serialized native spelling.
+const invalidSvgCasing = <svg viewbox="0 0 24 24" />;
+
 // @ts-expect-error HTML enumerated attributes reject unknown values.
 const invalidInputMode = <input inputmode="keyboard" />;
+
+// @ts-expect-error current color inputs expose the serialized colorspace tokens.
+const invalidColorSpace = <input type="color" colorspace="adobe-rgb" />;
+
+// @ts-expect-error unknown ARIA attributes are rejected on built-in elements.
+const invalidAriaName: HTMLAttributes = { "aria-labl": "Typo" };
+
+// @ts-expect-error ARIA enumerated attributes reject unknown tokens.
+const invalidAriaValue = <div aria-live="loud" />;
+
+// @ts-expect-error abstract ARIA roles are not usable role values.
+const invalidAriaRole = <div role="widget" />;
+
+// @ts-expect-error ARIA booleans are serialized string tokens, not bare attrs.
+const invalidAriaBoolean: AriaAttributes = { "aria-atomic": true };
 
 // @ts-expect-error use the serialized `accept-charset` HTML name.
 const invalidFormAlias = <form acceptcharset="utf-8" />;
@@ -147,7 +194,14 @@ void invalidForAlias;
 void invalidSvgAlias;
 void invalidSvgEvent;
 void invalidSvgAttribute;
+void invalidScopedSvgAttribute;
+void invalidSvgCasing;
 void invalidInputMode;
+void invalidColorSpace;
+void invalidAriaName;
+void invalidAriaValue;
+void invalidAriaRole;
+void invalidAriaBoolean;
 void invalidFormAlias;
 void invalidSrcdoc;
 void invalidArrayValue;
