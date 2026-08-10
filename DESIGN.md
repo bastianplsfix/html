@@ -332,14 +332,19 @@ The core renderer remains HTTP-independent. The `/response` entrypoint offers a
 small convenience:
 
 ```tsx
-import { html } from "@bastianplsfix/html/response";
+import { html, streamHtml } from "@bastianplsfix/html/response";
 
 return await html(<HomePage />);
+
+// Opt into incremental delivery when late-error semantics are acceptable.
+return streamHtml(<HomePage />, { signal: request.signal });
 ```
 
-It renders to a string, preserves `ResponseInit`, and sets
+`html()` renders to a string before constructing the response, while
+`streamHtml()` returns a response whose body is rendered incrementally. Both
+preserve response initialization, accept an optional abort signal, and set
 `text/html; charset=utf-8` only when the caller did not supply a content type.
-This pairs naturally with Hectoday HTTP without coupling the renderer to it.
+They pair naturally with Hectoday HTTP without coupling the renderer to it.
 
 ## Security invariants
 
@@ -396,7 +401,9 @@ JSON embedded in a script raw-text element uses a dedicated helper:
 
 `scriptJSON` serializes JSON and replaces `<`, `>`, `&`, U+2028, and U+2029 with
 JavaScript Unicode escapes. Ordinary HTML escaping does not model every raw-text
-context correctly.
+context correctly. The renderer therefore rejects ordinary children of
+`script` and `style`. JSON must use `scriptJSON()`, while explicitly trusted
+JavaScript or CSS source must cross the visible `unsafeHTML()` boundary.
 
 ### URLs
 
@@ -407,9 +414,9 @@ HTML escaping does not make a URL semantically safe:
 ```
 
 A `javascript:` URL can be correctly HTML-escaped and remain dangerous. The
-initial contract documents this distinction. A later development mode should
-warn about dangerous schemes rather than pretending escaping is URL
-sanitization.
+renderer can report recognized dangerous schemes through an opt-in `onWarning`
+callback, without pretending that its diagnostics replace an application's URL
+policy.
 
 ## Attribute behavior
 
@@ -499,8 +506,11 @@ Cannot render an object as a child.
 
 Received: {"id":"123"}
 
+Element:
+  at <li> (views/todo-row.tsx:18:11)
+
 Component stack:
-  at <TodoRow> (views/todo-row.tsx:18:11)
+  at <TodoRow> (views/todo-row.tsx:17:5)
 ```
 
 ## Internal representation
@@ -666,7 +676,7 @@ through Preact, Hono, and Fresh. The product thesis rests on:
 ### 0.1 foundation
 
 - [x] Deno precompile runtime;
-- [x] immutable branded `Html` instructions;
+- [x] private, immutable, runtime-validated `Html` instructions;
 - [x] deferred function components;
 - [x] fragments, arrays, and iterables;
 - [x] promises and buffered async rendering;
@@ -681,20 +691,21 @@ through Preact, Hono, and Fresh. The product thesis rests on:
 - [x] `scriptJSON()`;
 - [x] optional buffered response adapter.
 
-The instruction representation is streaming-ready, but streaming is not part of
-the initial public renderer contract.
+The public renderers now share one ordered chunk traversal, with buffered and
+streaming consumers applying the same escaping and component semantics.
 
 ### Follow-up work
 
-- [ ] `renderToStream()` with ordered output;
-- [ ] streaming backpressure tests;
-- [ ] abort-aware iterator cleanup;
-- [ ] richer development source locations under precompile;
-- [ ] development warnings for dangerous URL schemes;
-- [ ] stricter `script` and `style` raw-text policies;
+- [x] `renderToStream()` with ordered output;
+- [x] streaming backpressure tests;
+- [x] abort-aware iterator cleanup;
+- [x] optional streaming response adapter;
+- [x] intrinsic-element source locations in render errors;
+- [x] opt-in warnings for dangerous URL schemes;
+- [x] stricter `script` and `style` raw-text policies;
 - [ ] broader generated HTML and SVG living-standard types;
-- [ ] explicit inline SVG coverage;
-- [ ] custom-element attribute refinements;
+- [x] explicit inline SVG serialization and type coverage;
+- [x] server-serializable custom-element attribute refinements;
 - [ ] performance benchmarks and synchronous fast paths.
 
 ## Contract-defining test

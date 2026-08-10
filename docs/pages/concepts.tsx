@@ -108,6 +108,16 @@ export function ConceptsPage(): Html {
             <code>data-*</code>,{" "}
             <code>aria-*</code>, SVG, and custom elements are typed.
           </li>
+          <li>
+            SVG presentation attributes use native spellings such as{" "}
+            <code>stroke-width</code> and <code>fill-rule</code>, not DOM
+            property aliases.
+          </li>
+          <li>
+            Custom elements accept global attributes and hyphenated application
+            attributes; object and function values remain invalid at render
+            time.
+          </li>
         </ul>
         <CodeBlock code='<input class="field" readonly required={false} value={value} />' />
       </section>

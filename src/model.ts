@@ -1,7 +1,5 @@
-/** The runtime brand shared by all immutable HTML instruction values. */
-export const HTML_NODE: unique symbol = Symbol.for(
-  "@bastianplsfix/html.node",
-);
+/** Module-private brand carried by immutable HTML instruction values. */
+const HTML_NODE: unique symbol = Symbol("@bastianplsfix/html.node");
 
 /**
  * An immutable instruction that the renderer trusts as HTML markup.
@@ -105,12 +103,9 @@ export type HtmlNode =
   | RawNode
   | FragmentNode;
 
-const nodeBase = {
-  [HTML_NODE]: true,
-} as const;
-
-function freezeNode<Node extends HtmlNode>(node: Node): Node {
-  return Object.freeze(node);
+function freezeNode<const Node extends object>(node: Node): Node & Html {
+  Object.defineProperty(node, HTML_NODE, { value: true });
+  return Object.freeze(node) as Node & Html;
 }
 
 function freezeProps(
@@ -124,7 +119,6 @@ export function templateNode(
   values: readonly unknown[],
 ): TemplateNode {
   return freezeNode({
-    ...nodeBase,
     nodeType: "template",
     strings: Object.freeze([...strings]),
     values: Object.freeze([...values]),
@@ -137,7 +131,6 @@ export function componentNode(
   source?: SourceLocation,
 ): ComponentNode {
   return freezeNode({
-    ...nodeBase,
     nodeType: "component",
     component,
     props: freezeProps(props),
@@ -151,7 +144,6 @@ export function elementNode(
   source?: SourceLocation,
 ): ElementNode {
   return freezeNode({
-    ...nodeBase,
     nodeType: "element",
     tagName,
     props: freezeProps(props),
@@ -160,22 +152,23 @@ export function elementNode(
 }
 
 export function escapedNode(value: unknown): EscapedNode {
-  return freezeNode({ ...nodeBase, nodeType: "escaped", value });
+  return freezeNode({ nodeType: "escaped", value });
 }
 
 export function attributeNode(name: string, value: unknown): AttributeNode {
-  return freezeNode({ ...nodeBase, nodeType: "attribute", name, value });
+  return freezeNode({ nodeType: "attribute", name, value });
 }
 
 export function rawNode(value: string): RawNode {
-  return freezeNode({ ...nodeBase, nodeType: "raw", value });
+  return freezeNode({ nodeType: "raw", value });
 }
 
 export function fragmentNode(children: unknown): FragmentNode {
-  return freezeNode({ ...nodeBase, nodeType: "fragment", children });
+  return freezeNode({ nodeType: "fragment", children });
 }
 
 export function isHtml(value: unknown): value is HtmlNode {
   return typeof value === "object" && value !== null &&
+    Object.hasOwn(value, HTML_NODE) &&
     (value as { [HTML_NODE]?: unknown })[HTML_NODE] === true;
 }

@@ -7,7 +7,7 @@ export function ApiPage(): Html {
     <article class="prose-page api-page">
       <PageHeader
         title="API reference"
-        lead="The 0.1 surface is intentionally compact: values, one buffered renderer, and explicit trust helpers."
+        lead="The 0.1 surface is intentionally compact: values, ordered renderers, and explicit trust helpers."
       />
 
       <div class="import-path">
@@ -27,7 +27,26 @@ export function ApiPage(): Html {
         <p>
           Resolves a complete renderable tree into one HTML string. An optional
           <code>AbortSignal</code>{" "}
-          stops traversal when the request is cancelled.
+          stops traversal when the request is cancelled. Supply
+          <code>onWarning</code>{" "}
+          to receive structured, non-fatal security diagnostics.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="renderToStream"
+        signature={[
+          "function renderToStream(",
+          "  view: Renderable,",
+          "  options?: RenderOptions,",
+          "): ReadableStream<Uint8Array>",
+        ].join("\n")}
+      >
+        <p>
+          Produces ordered UTF-8 HTML chunks on demand. Stream cancellation
+          closes active iterators. Errors after delivery starts error the stream
+          because the response status and headers may already be committed. It
+          accepts the same signal and warning options as buffered rendering.
         </p>
       </ApiEntry>
 
@@ -57,11 +76,27 @@ export function ApiPage(): Html {
       </ApiEntry>
 
       <ApiEntry
+        name="RenderError"
+        signature={[
+          "class RenderError extends Error {",
+          "  readonly detail: string;",
+          "  readonly element?: ElementFrame;",
+          "  readonly componentStack: readonly ComponentFrame[];",
+          "}",
+        ].join("\n")}
+      >
+        <p>
+          Normalized renderer failure with structured intrinsic-element source
+          information and the server-component path that produced it.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
         name="html"
         signature={[
           "function html(",
           "  view: Renderable,",
-          "  init?: ResponseInit,",
+          "  init?: HtmlResponseInit,",
           "): Promise<Response>",
         ].join("\n")}
       >
@@ -70,6 +105,24 @@ export function ApiPage(): Html {
           <code>@bastianplsfix/html/response</code>. Buffers a view into a Web
           Standard response and supplies the HTML content type unless the caller
           already set one.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="streamHtml"
+        signature={[
+          "function streamHtml(",
+          "  view: Renderable,",
+          "  init?: HtmlResponseInit,",
+          "): Response",
+        ].join("\n")}
+      >
+        <p>
+          Available from{" "}
+          <code>@bastianplsfix/html/response</code>. Creates a Web Standard
+          response immediately and renders its body as ordered UTF-8 chunks.
+          Pass the request signal through <code>init.signal</code> so aborted
+          requests stop traversal.
         </p>
       </ApiEntry>
 
@@ -97,12 +150,11 @@ export function ApiPage(): Html {
         <p>A deferred server component with no instances or lifecycle.</p>
       </ApiEntry>
 
-      <Callout title="Planned, not public yet">
+      <Callout title="Streaming contract">
         <p>
-          <code>renderToStream()</code>{" "}
-          is intentionally absent while buffered escaping, component, and error
-          semantics settle. The instruction model already preserves the ordered
-          traversal it will need.
+          Chunk boundaries are deliberately unspecified. Streaming preserves the
+          same escaping and traversal order as <code>renderToString()</code>, but
+          callers cannot replace an HTTP response after its first bytes are sent.
         </p>
       </Callout>
     </article>

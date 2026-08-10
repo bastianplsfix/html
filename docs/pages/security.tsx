@@ -58,7 +58,9 @@ export function SecurityPage(): Html {
           A script element is not an ordinary HTML text context. Use
           <code>scriptJSON()</code>{" "}
           to serialize data and neutralize characters that could close the
-          element.
+          element. Ordinary children of <code>script</code> and{" "}
+          <code>style</code> are rejected; explicitly trusted JavaScript or CSS
+          source must use <code>unsafeHTML()</code>.
         </p>
         <CodeBlock code={JSON_CODE} filename="document.tsx" />
       </section>
@@ -70,7 +72,9 @@ export function SecurityPage(): Html {
           <code>javascript:</code>{" "}
           URL can still be dangerous. Validate schemes and destinations
           according to your application's URL policy before rendering
-          user-controlled links.
+          user-controlled links. During development, pass an
+          <code>onWarning</code> callback to the renderer or response helper to
+          receive structured diagnostics for recognized dangerous schemes.
         </p>
       </section>
 

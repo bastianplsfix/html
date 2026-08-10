@@ -454,36 +454,103 @@ export interface VideoHTMLAttributes extends MediaHTMLAttributes {
   width?: number | string;
 }
 
-/** A deliberately small, HTML-serialization-oriented SVG attribute set. */
+/** Shared inline SVG attributes using their native serialized spellings. */
 export interface SVGAttributes extends DataAttributes, AriaAttributes {
   children?: Renderable;
   class?: string;
+  color?: string;
+  display?: string;
   fill?: string;
+  "fill-opacity"?: number | string;
+  "fill-rule"?: "nonzero" | "evenodd" | "inherit";
+  filter?: string;
   height?: number | string;
   id?: string;
   lang?: string;
-  markerEnd?: string;
-  markerMid?: string;
-  markerStart?: string;
+  "marker-end"?: string;
+  "marker-mid"?: string;
+  "marker-start"?: string;
+  mask?: string;
+  opacity?: number | string;
+  "paint-order"?: string;
+  "pointer-events"?: string;
   preserveAspectRatio?: string;
   role?: string;
   stroke?: string;
-  strokeLinecap?: string;
-  strokeLinejoin?: string;
-  strokeWidth?: number | string;
+  "stroke-dasharray"?: string;
+  "stroke-dashoffset"?: number | string;
+  "stroke-linecap"?: "butt" | "round" | "square" | "inherit";
+  "stroke-linejoin"?: "arcs" | "bevel" | "miter" | "miter-clip" | "round" |
+    "inherit";
+  "stroke-miterlimit"?: number | string;
+  "stroke-opacity"?: number | string;
+  "stroke-width"?: number | string;
   style?: string;
   tabindex?: number;
   transform?: string;
+  "transform-origin"?: string;
+  "vector-effect"?: string;
   viewBox?: string;
+  visibility?: string;
   width?: number | string;
   x?: number | string;
-  xlinkHref?: string;
+  "xlink:href"?: string;
   xmlns?: string;
+  "xmlns:xlink"?: string;
   y?: number | string;
 }
 
-export interface CustomElementAttributes {
-  [name: string]: Renderable;
+export interface SVGGraphicsAttributes extends SVGAttributes {
+  pathLength?: number | string;
+}
+
+export interface SVGCircleAttributes extends SVGGraphicsAttributes {
+  cx?: number | string;
+  cy?: number | string;
+  r?: number | string;
+}
+
+export interface SVGEllipseAttributes extends SVGGraphicsAttributes {
+  cx?: number | string;
+  cy?: number | string;
+  rx?: number | string;
+  ry?: number | string;
+}
+
+export interface SVGLineAttributes extends SVGGraphicsAttributes {
+  x1?: number | string;
+  x2?: number | string;
+  y1?: number | string;
+  y2?: number | string;
+}
+
+export interface SVGPathAttributes extends SVGGraphicsAttributes {
+  d?: string;
+}
+
+export interface SVGPointsAttributes extends SVGGraphicsAttributes {
+  points?: string;
+}
+
+export interface SVGRectAttributes extends SVGGraphicsAttributes {
+  rx?: number | string;
+  ry?: number | string;
+}
+
+export interface SVGUseAttributes extends SVGGraphicsAttributes {
+  href?: string;
+}
+
+/** Server-serializable attributes for hyphenated custom elements. */
+export interface CustomElementAttributes extends HTMLAttributes {
+  checked?: boolean;
+  disabled?: boolean;
+  name?: string;
+  open?: boolean;
+  readonly?: boolean;
+  selected?: boolean;
+  value?: AttributeValue;
+  [name: `${string}-${string}`]: AttributeValue;
 }
 
 type GeneralHTMLTag =
@@ -555,24 +622,61 @@ type GeneralHTMLTag =
   | "wbr";
 
 type GeneralSVGTag =
+  | "animate"
+  | "animateMotion"
+  | "animateTransform"
   | "circle"
   | "clipPath"
   | "defs"
+  | "desc"
   | "ellipse"
+  | "feBlend"
+  | "feColorMatrix"
+  | "feComponentTransfer"
+  | "feComposite"
+  | "feConvolveMatrix"
+  | "feDiffuseLighting"
+  | "feDisplacementMap"
+  | "feDistantLight"
+  | "feDropShadow"
+  | "feFlood"
+  | "feFuncA"
+  | "feFuncB"
+  | "feFuncG"
+  | "feFuncR"
+  | "feGaussianBlur"
+  | "feImage"
+  | "feMerge"
+  | "feMergeNode"
+  | "feMorphology"
+  | "feOffset"
+  | "fePointLight"
+  | "feSpecularLighting"
+  | "feSpotLight"
+  | "feTile"
+  | "feTurbulence"
+  | "filter"
   | "foreignObject"
   | "g"
+  | "image"
   | "line"
   | "linearGradient"
   | "mask"
+  | "marker"
+  | "metadata"
+  | "mpath"
   | "path"
   | "pattern"
   | "polygon"
   | "polyline"
   | "radialGradient"
   | "rect"
+  | "set"
   | "stop"
+  | "switch"
   | "symbol"
   | "text"
+  | "textPath"
   | "tspan"
   | "use";
 
@@ -640,6 +744,14 @@ export namespace JSX {
     source: SourceHTMLAttributes;
     style: StyleHTMLAttributes;
     svg: SVGAttributes;
+    circle: SVGCircleAttributes;
+    ellipse: SVGEllipseAttributes;
+    line: SVGLineAttributes;
+    path: SVGPathAttributes;
+    polygon: SVGPointsAttributes;
+    polyline: SVGPointsAttributes;
+    rect: SVGRectAttributes;
+    use: SVGUseAttributes;
     td: TableCellHTMLAttributes;
     textarea: TextareaHTMLAttributes;
     th: TableCellHTMLAttributes;

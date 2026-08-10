@@ -14,7 +14,8 @@ export function HomePage(): Html {
           </h1>
           <p class="hero-lead">
             Build typed server templates with ordinary TypeScript. No virtual
-            DOM, hydration, hooks, or browser bundle—just safe HTML strings.
+            DOM, hydration, hooks, or browser bundle—just safe HTML strings and
+            streams.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="/getting-started">
