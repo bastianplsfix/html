@@ -3,6 +3,9 @@
 Typed, server-only TSX templates for Deno. No virtual DOM, hydration, hooks, or
 client runtime—just safe HTML values rendered to strings or streams.
 
+The compatibility floor is Deno 2.1. Use a currently maintained stable or LTS
+Deno release for production deployments.
+
 [Documentation](https://bastianplsfix-html.bs.deno.net) ·
 [JSR](https://jsr.io/@bastianplsfix/html) · [Changelog](./CHANGELOG.md) ·
 [Design](./DESIGN.md)
@@ -122,15 +125,20 @@ handling matters more than progressive output.
 ## Response helper
 
 ```tsx
-import { html } from "@bastianplsfix/html/response";
+import { html, streamHtml } from "@bastianplsfix/html/response";
 
 return await html(<h1>Hello</h1>, { status: 200 });
+
+// Or preserve streaming and pass renderer options alongside ResponseInit.
+return streamHtml(<Page />, { signal: request.signal });
 ```
 
 ## Development
 
 ```sh
 deno task check
+deno task bench:check
+deno task bench:profile
 ```
 
 The documentation site is built with this package and contains no client-side
@@ -155,4 +163,5 @@ core package.
 
 Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md)
 before opening a change and report vulnerabilities according to
-[SECURITY.md](./SECURITY.md).
+[SECURITY.md](./SECURITY.md). Maintainers should follow the verified
+[release checklist](./RELEASING.md).
