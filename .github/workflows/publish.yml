@@ -6,26 +6,36 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish
+  verify:
+    name: Verify release candidate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
 
       - name: Set up Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: latest
           cache: true
+
+      - name: Verify tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          release_commit=$(git rev-list -n 1 "$GITHUB_REF_NAME")
+          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+            echo "Release tag must point to a commit on origin/main" >&2
+            exit 1
+          fi
 
       - name: Install locked dependencies
         run: deno ci
@@ -47,8 +57,60 @@ jobs:
       - name: Verify publish contents and JSR requirements
         run: deno publish --dry-run
 
+  publish:
+    name: Publish to JSR
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: jsr
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: latest
+
       - name: Publish package
         run: deno publish
+
+  published-smoke:
+    name: Verify published package
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: latest
+
+      - name: Check exact published version and entrypoints
+        run: >-
+          deno run --allow-read=deno.json --allow-import=jsr.io
+          .github/scripts/published_smoke.ts
+
+  release:
+    name: Create GitHub release
+    needs: published-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: latest
 
       - name: Extract changelog release notes
         env:
@@ -61,8 +123,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
-        run: >-
-          gh release create "$GITHUB_REF_NAME"
-          --verify-tag
-          --title "$GITHUB_REF_NAME"
-          --notes-file "$RELEASE_NOTES_PATH"
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$RELEASE_NOTES_PATH"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$RELEASE_NOTES_PATH"
+          fi

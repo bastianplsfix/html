@@ -4,6 +4,7 @@ import { DocsLayout } from "../components/mod.ts";
 import { NotFoundPage } from "../pages/mod.ts";
 import { serveAsset } from "./assets.ts";
 import { findRoute } from "./routes.ts";
+import packageConfig from "../../deno.json" with { type: "json" };
 
 const PAGE_HEADERS = {
   "cache-control": "no-cache",
@@ -11,6 +12,7 @@ const PAGE_HEADERS = {
     "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   "referrer-policy": "strict-origin-when-cross-origin",
   "x-content-type-options": "nosniff",
+  "x-html-version": packageConfig.version,
 } as const;
 
 /** Route and render one documentation request. */

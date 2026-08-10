@@ -38,7 +38,7 @@ async function readReleaseMetadata(
   };
   if (
     typeof config.version !== "string" ||
-    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(config.version)
+    !isSemanticVersion(config.version)
   ) {
     throw new Error("deno.json must contain a valid semantic version.");
   }
@@ -77,4 +77,16 @@ async function readReleaseMetadata(
     version: config.version,
     notes,
   };
+}
+
+/** Return whether a value is a complete SemVer 2.0 version. */
+export function isSemanticVersion(value: string): boolean {
+  const numeric = "(?:0|[1-9]\\d*)";
+  const identifier = "(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)";
+  const buildIdentifier = "[0-9A-Za-z-]+";
+  return new RegExp(
+    `^${numeric}\\.${numeric}\\.${numeric}` +
+      `(?:-${identifier}(?:\\.${identifier})*)?` +
+      `(?:\\+${buildIdentifier}(?:\\.${buildIdentifier})*)?$`,
+  ).test(value);
 }

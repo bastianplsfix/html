@@ -28,8 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
       - name: Set up Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: latest
 
@@ -40,10 +43,13 @@ jobs:
           deno eval '
             const base = Deno.env.get("SITE_URL");
             if (!base) throw new Error("SITE_URL is not set");
+            const { version } = JSON.parse(
+              await Deno.readTextFile("deno.json"),
+            );
 
             async function check() {
               const page = await fetch(`${base}/`, {
-                signal: AbortSignal.timeout(10_000),
+                signal: AbortSignal.timeout(7_000),
               });
               const body = await page.text();
               if (!page.ok) throw new Error(`Home page returned ${page.status}`);
@@ -53,9 +59,12 @@ jobs:
               if (!body.includes("@bastianplsfix/html")) {
                 throw new Error("Home page is missing the package name");
               }
+              if (page.headers.get("x-html-version") !== version) {
+                throw new Error("Documentation deployment version is stale");
+              }
 
               const stylesheet = await fetch(`${base}/styles.css`, {
-                signal: AbortSignal.timeout(10_000),
+                signal: AbortSignal.timeout(7_000),
               });
               const css = await stylesheet.text();
               if (!stylesheet.ok) {
@@ -70,7 +79,7 @@ jobs:
             }
 
             let lastError;
-            for (let attempt = 1; attempt <= 20; attempt++) {
+            for (let attempt = 1; attempt <= 12; attempt++) {
               try {
                 await check();
                 console.log(`Production smoke test passed on attempt ${attempt}`);
@@ -78,8 +87,8 @@ jobs:
               } catch (error) {
                 lastError = error;
                 console.error(`Attempt ${attempt} failed:`, error);
-                if (attempt < 20) {
-                  await new Promise((resolve) => setTimeout(resolve, 15_000));
+                if (attempt < 12) {
+                  await new Promise((resolve) => setTimeout(resolve, 10_000));
                 }
               }
             }

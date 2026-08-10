@@ -10,6 +10,7 @@ Deno.test("docs home is rendered by the framework", async () => {
     response.headers.get("content-type"),
     "text/html; charset=utf-8",
   );
+  assertEquals(response.headers.get("x-html-version"), "0.2.0");
   assertStringIncludes(body, "<!doctype html>");
   assertStringIncludes(body, '<html lang="en" class="light">');
   assertStringIncludes(
