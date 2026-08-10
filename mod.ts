@@ -22,3 +22,8 @@ export type {
   Renderable,
   SourceLocation,
 } from "./src/model.ts";
+export type {
+  AttributeValue,
+  CustomElementProps,
+  IntrinsicElementProps,
+} from "./src/jsx_types.ts";

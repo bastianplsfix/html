@@ -21,6 +21,15 @@ export function GettingStartedPage(): Html {
           as runtime elements so their raw-text contexts remain explicit.
         </p>
         <CodeBlock code={CONFIG_CODE} language="json" filename="deno.json" />
+        <Callout title="Security-critical configuration" tone="warning">
+          <p>
+            Do not remove <code>script</code> or <code>style</code> from{" "}
+            <code>jsxPrecompileSkipElements</code>. Deno can otherwise compile
+            raw-text contents into a static template before normal child
+            validation. The renderer rejects that shape defensively; restore the
+            required skips to render the element safely.
+          </p>
+        </Callout>
         <p>
           The configuration also disables Deno's <code>jsx-key</code>{" "}
           rule. This renderer never reconciles component lists, so keys have no

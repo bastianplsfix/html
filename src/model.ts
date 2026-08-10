@@ -1,5 +1,13 @@
-/** Module-private brand carried by immutable HTML instruction values. */
-const HTML_NODE: unique symbol = Symbol("@bastianplsfix/html.node");
+/**
+ * Version-one runtime protocol brand shared by compatible package copies.
+ *
+ * @internal
+ */
+export const HTML_NODE: unique symbol = Symbol.for(
+  "@bastianplsfix/html.node",
+);
+
+const HTML_TYPE_BRAND = "@bastianplsfix/html.node" as const;
 
 /**
  * An immutable instruction that the renderer trusts as HTML markup.
@@ -8,12 +16,16 @@ const HTML_NODE: unique symbol = Symbol("@bastianplsfix/html.node");
  */
 export interface Html {
   /**
-   * Runtime-only authenticity marker.
+   * Structural type marker shared by independently resolved 0.2 copies.
+   * Runtime protocol checks continue to use {@link HTML_NODE} so that values
+   * produced by version 0.1 remain interoperable.
    *
    * @ignore
    */
-  readonly [HTML_NODE]: true;
+  readonly [HTML_TYPE_BRAND]: 1;
 }
+
+type BrandedHtml = Html & { readonly [HTML_NODE]: true };
 
 /** Any value that can be consumed by the HTML renderer. */
 export type Renderable =
@@ -51,6 +63,7 @@ type AnyComponent = (
 ) => Renderable;
 
 interface NodeBase extends Html {
+  readonly [HTML_NODE]: true;
   readonly nodeType:
     | "attribute"
     | "component"
@@ -111,9 +124,12 @@ export type HtmlNode =
   | RawNode
   | FragmentNode;
 
-function freezeNode<const Node extends object>(node: Node): Node & Html {
-  Object.defineProperty(node, HTML_NODE, { value: true });
-  return Object.freeze(node) as Node & Html;
+function freezeNode<const Node extends object>(node: Node): Node & BrandedHtml {
+  Object.defineProperties(node, {
+    [HTML_NODE]: { value: true },
+    [HTML_TYPE_BRAND]: { value: 1 },
+  });
+  return Object.freeze(node) as Node & BrandedHtml;
 }
 
 function freezeProps(

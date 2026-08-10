@@ -86,6 +86,12 @@ export function SecurityPage(): Html {
         <CodeBlock code={RAW_TEXT_CODE} filename="document.tsx" />
         <Callout title="Trust is context-specific" tone="warning">
           <p>
+            Removing either compiler skip makes Deno emit an unsupported
+            precompiled raw-text template. The renderer rejects that shape
+            rather than emitting it, but the skip configuration is still
+            required for raw-text elements.
+          </p>
+          <p>
             <code>unsafeHTML()</code>{" "}
             performs no HTML, JavaScript, or CSS sanitization. A value trusted
             as HTML is not automatically safe as script or stylesheet source.
@@ -117,6 +123,14 @@ export function SecurityPage(): Html {
             and destinations instead of treating the callback as validation.
           </p>
         </Callout>
+        <p>
+          The same principle applies beyond URL schemes. Escaping does not make
+          user-controlled CSS in{" "}
+          <code>style</code>, custom-element semantics, SVG animation values, or
+          active <code>data:</code>{" "}
+          payloads safe. Validate every browser-interpreted value according to
+          its destination context.
+        </p>
       </section>
 
       <nav class="next-page" aria-label="Next documentation page">

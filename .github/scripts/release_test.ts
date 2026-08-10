@@ -1,5 +1,10 @@
-import { assertEquals } from "@std/assert";
-import { isSemanticVersion } from "./release.ts";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import {
+  findReleaseVersionDrift,
+  isSemanticVersion,
+  releaseVersionExpectations,
+} from "./release.ts";
+import { createPublishedConsumerConfig } from "./published_smoke.ts";
 
 Deno.test("release versions follow SemVer 2.0", () => {
   for (
@@ -31,4 +36,42 @@ Deno.test("release versions follow SemVer 2.0", () => {
   ) {
     assertEquals(isSemanticVersion(value), false, value);
   }
+});
+
+Deno.test("release-controlled version references stay synchronized", () => {
+  const version = "0.2.0";
+  const sources: Record<string, string> = {
+    "CHANGELOG.md": `# Changelog\n\n## ${version} — today\n\n- Notes.`,
+    // The independently runnable example intentionally follows only versions
+    // that already exist in JSR and is outside the release-controlled set.
+    "examples/hello/deno.json": "jsr:@bastianplsfix/html@^0.1.0",
+  };
+  for (const { path, text } of releaseVersionExpectations(version)) {
+    sources[path] = `${sources[path] ?? ""}\n${text}`;
+  }
+
+  assertEquals(findReleaseVersionDrift(version, sources), []);
+
+  sources["README.md"] = sources["README.md"].replaceAll(version, "0.1.0");
+  const drift = findReleaseVersionDrift(version, sources);
+  assertEquals(drift.length > 0, true);
+  assertStringIncludes(drift.join("\n"), "README install command");
+  assertStringIncludes(drift.join("\n"), "Stale package version 0.1.0");
+});
+
+Deno.test("published smoke accepts a brand-new exact version", () => {
+  const source = createPublishedConsumerConfig(
+    "@bastianplsfix/html",
+    "jsr:@bastianplsfix/html@0.2.0",
+  );
+  const config = JSON.parse(source) as {
+    readonly minimumDependencyAge?: unknown;
+    readonly imports?: Readonly<Record<string, unknown>>;
+  };
+
+  assertEquals(config.minimumDependencyAge, 0);
+  assertEquals(
+    config.imports?.["@bastianplsfix/html"],
+    "jsr:@bastianplsfix/html@0.2.0",
+  );
 });

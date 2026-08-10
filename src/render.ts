@@ -114,7 +114,11 @@ interface RenderContext {
   readonly cleanupPolicy?: { awaitOnAbort: boolean };
   readonly onWarning?: (warning: RenderWarning) => void;
   readonly signal?: AbortSignal;
-  readonly syncBudget?: { remaining: number };
+  readonly syncBudget?: {
+    deadline: number;
+    remaining: number;
+    checksUntilYield: number;
+  };
 }
 
 type ProtocolMethod = (this: unknown, ...args: unknown[]) => unknown;
@@ -127,7 +131,15 @@ type BufferedResult = void | Promise<void>;
 
 const NO_FAILURE: unique symbol = Symbol("no render failure");
 const ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+const VALIDATED_TEMPLATE_NODES = new WeakSet<object>();
+// A buffered traversal is otherwise one uninterrupted JavaScript task. Yield
+// after a bounded amount of synchronous work so timers and request-abort
+// events can run without putting a task hop on ordinary page renders.
 const BUFFERED_SYNC_BUDGET = 1_024;
+const BUFFERED_CHECKS_UNTIL_YIELD = 16;
+const BUFFERED_TASK_INTERVAL_MS = 4;
+const DIAGNOSTIC_VALUE_CODE_UNITS = 160;
+const RAW_TEXT_OPENING_CANDIDATE = /<(?:script|style)(?=[\t\n\f\r />]|$)/iu;
 const STREAM_CHUNK_CODE_UNITS = 16 * 1_024;
 const STREAM_CHUNK_SEGMENTS = 32;
 const STREAM_READY_MICROTASKS = 24;
@@ -154,7 +166,11 @@ export async function renderToString(
   const context: RenderContext = {
     ...(options.onWarning ? { onWarning: options.onWarning } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    syncBudget: { remaining: BUFFERED_SYNC_BUDGET },
+    syncBudget: {
+      deadline: performance.now() + BUFFERED_TASK_INTERVAL_MS,
+      remaining: BUFFERED_SYNC_BUDGET,
+      checksUntilYield: BUFFERED_CHECKS_UNTIL_YIELD,
+    },
   };
   const chunks: string[] = [];
 
@@ -378,6 +394,20 @@ function renderBufferedValue(
   const budget = context.syncBudget;
   if (budget && budget.remaining-- <= 0) {
     budget.remaining = BUFFERED_SYNC_BUDGET;
+    budget.checksUntilYield--;
+    if (
+      budget.checksUntilYield <= 0 || performance.now() >= budget.deadline
+    ) {
+      budget.checksUntilYield = BUFFERED_CHECKS_UNTIL_YIELD;
+      return yieldToHostTask().then(() => {
+        budget.deadline = performance.now() + BUFFERED_TASK_INTERVAL_MS;
+        return renderBufferedValue(value, context, chunks);
+      });
+    }
+    // Even when a host-task yield is not due yet, break synchronous component
+    // recursion at every budget boundary. The occasional host-task escalation
+    // above exists for timer/request cancellation; this microtask continuation
+    // exists for stack safety.
     return Promise.resolve().then(() => {
       return renderBufferedValue(value, context, chunks);
     });
@@ -789,6 +819,9 @@ function assertValidHtmlNode(node: HtmlNode): void {
       assertInstructionOwnField(instruction, "children");
       return;
     case "template":
+      if (VALIDATED_TEMPLATE_NODES.has(instruction)) {
+        return;
+      }
       if (
         !Array.isArray(instruction.strings) ||
         !instruction.strings.every((value) => typeof value === "string") ||
@@ -796,6 +829,14 @@ function assertValidHtmlNode(node: HtmlNode): void {
         instruction.strings.length !== instruction.values.length + 1
       ) {
         throw malformedInstruction("template");
+      }
+      assertNoPrecompiledRawTextElements(instruction.strings);
+      if (
+        Object.isFrozen(instruction) &&
+        Object.isFrozen(instruction.strings) &&
+        Object.isFrozen(instruction.values)
+      ) {
+        VALIDATED_TEMPLATE_NODES.add(instruction);
       }
       return;
     case "component":
@@ -879,6 +920,115 @@ function isPlainRecord(value: object): boolean {
 
 function malformedInstruction(nodeType: string): RenderError {
   return new RenderError(`Received a malformed ${nodeType} HTML instruction.`);
+}
+
+/**
+ * Deno's precompile transform emits literal markup as template strings. Raw
+ * text elements must instead reach `jsx()` so the renderer can enforce their
+ * context-specific child policy. This small HTML-aware scan ignores quoted
+ * attribute values and comments while rejecting actual opening tags.
+ */
+function assertNoPrecompiledRawTextElements(
+  strings: readonly string[],
+): void {
+  // Almost every generated template takes this allocation-free path. A tag
+  // name cannot contain a JSX interpolation, so only a candidate segment (or
+  // one ending immediately after the name) needs the structural scan below.
+  if (!strings.some((segment) => RAW_TEXT_OPENING_CANDIDATE.test(segment))) {
+    return;
+  }
+
+  const markup = strings.join("");
+  let index = 0;
+
+  while (index < markup.length) {
+    const opening = markup.indexOf("<", index);
+    if (opening === -1) {
+      return;
+    }
+
+    if (markup.startsWith("<!--", opening)) {
+      const commentEnd = markup.indexOf("-->", opening + 4);
+      if (commentEnd === -1) {
+        // Be conservative around malformed/unclosed comments: a browser may
+        // recover before a later tag even when this lightweight scan cannot.
+        index = opening + 4;
+        continue;
+      }
+      index = commentEnd + 3;
+      continue;
+    }
+
+    const nameStart = opening + 1;
+    const first = markup.charCodeAt(nameStart);
+    if (isAsciiLetter(first)) {
+      let nameEnd = nameStart + 1;
+      while (isTagNameCodeUnit(markup.charCodeAt(nameEnd))) {
+        nameEnd++;
+      }
+
+      const tagName = markup.slice(nameStart, nameEnd).toLowerCase();
+      if (
+        RAW_TEXT_ELEMENTS.has(tagName) &&
+        isTagNameBoundary(markup.charCodeAt(nameEnd))
+      ) {
+        throw new RenderError(
+          `Deno precompiled the <${tagName}> raw-text element. Configure \`"jsxPrecompileSkipElements": ["script", "style"]\` so @bastianplsfix/html can enforce raw-text escaping.`,
+        );
+      }
+
+      index = skipStaticTag(markup, nameStart);
+      continue;
+    }
+
+    if (first === 0x21 || first === 0x2f || first === 0x3f) {
+      index = skipStaticTag(markup, nameStart);
+      continue;
+    }
+
+    // An invalid tag opener is text. Keep scanning because a real tag can
+    // follow before the next greater-than sign (`1 < 2 <script>`).
+    index = opening + 1;
+  }
+}
+
+function skipStaticTag(markup: string, start: number): number {
+  let quote = 0;
+
+  for (let index = start; index < markup.length; index++) {
+    const codeUnit = markup.charCodeAt(index);
+    if (quote !== 0) {
+      if (codeUnit === quote) {
+        quote = 0;
+      }
+      continue;
+    }
+    if (codeUnit === 0x22 || codeUnit === 0x27) {
+      quote = codeUnit;
+    } else if (codeUnit === 0x3e) {
+      return index + 1;
+    }
+  }
+
+  return markup.length;
+}
+
+function isAsciiLetter(codeUnit: number): boolean {
+  return (codeUnit >= 0x41 && codeUnit <= 0x5a) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7a);
+}
+
+function isTagNameCodeUnit(codeUnit: number): boolean {
+  return isAsciiLetter(codeUnit) ||
+    (codeUnit >= 0x30 && codeUnit <= 0x39) ||
+    codeUnit === 0x2d || codeUnit === 0x2e || codeUnit === 0x3a ||
+    codeUnit === 0x5f;
+}
+
+function isTagNameBoundary(codeUnit: number): boolean {
+  return codeUnit === 0x09 || codeUnit === 0x0a || codeUnit === 0x0c ||
+    codeUnit === 0x0d || codeUnit === 0x20 || codeUnit === 0x2f ||
+    codeUnit === 0x3e;
 }
 
 async function* renderComponent(
@@ -979,6 +1129,7 @@ async function* renderRawTextValue(
   }
 
   if (isHtml(value)) {
+    assertValidHtmlNode(value);
     switch (value.nodeType) {
       case "raw":
         yield value.value;
@@ -1131,12 +1282,19 @@ async function finishIteratorCleanup(
 
   if (
     primaryFailure !== NO_FAILURE &&
-    isAbortReason(primaryFailure, context.signal) &&
+    context.signal &&
     context.cleanupPolicy?.awaitOnAbort !== true
   ) {
-    // Cancellation must not wait forever for an uncooperative iterator. The
-    // return hook is still invoked and any later rejection is handled.
-    void cleanup.catch(() => {});
+    try {
+      await waitForNativePromise(cleanup, context.signal);
+    } catch (cleanupFailure) {
+      if (isAbortReason(cleanupFailure, context.signal)) {
+        // A later abort must not hide the failure that started IteratorClose.
+        // The return hook was invoked; detach it and handle any later rejection.
+        void cleanup.catch(() => {});
+      }
+      // IteratorClose never replaces the primary traversal failure.
+    }
     return;
   }
 
@@ -1158,6 +1316,10 @@ function hasRenderableChildren(value: unknown): boolean {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   signal?.throwIfAborted();
+}
+
+function yieldToHostTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function emitAttributeWarning(
@@ -1467,23 +1629,62 @@ function article(word: string): string {
 
 function describe(value: unknown): string {
   if (typeof value === "function") {
-    return value.name ? `[Function: ${value.name}]` : "[Function]";
+    // Function names are properties and can be trapped by a Proxy.
+    return "[Function]";
   }
 
   if (typeof value === "symbol") {
-    return String(value);
+    const description = value.description;
+    return description === undefined
+      ? "Symbol()"
+      : `Symbol(${quoteDiagnosticText(description)})`;
   }
 
-  try {
-    const json = JSON.stringify(value);
-    if (json !== undefined && json.length <= 240) {
-      return json;
+  if (typeof value === "object" && value !== null) {
+    if (isNativeError(value)) {
+      // Error.isError rejects Proxy wrappers. Reading a data descriptor from a
+      // branded native Error therefore cannot invoke an application getter.
+      const message = Object.getOwnPropertyDescriptor(value, "message");
+      if (typeof message?.value === "string" && message.value.length > 0) {
+        return `[Error: ${quoteDiagnosticText(message.value)}]`;
+      }
+      return "[Error]";
     }
-  } catch {
-    // Fall through to a stable object tag.
+
+    try {
+      if (Array.isArray(value)) {
+        return "[Array]";
+      }
+    } catch {
+      // A revoked Proxy cannot be inspected, even by Array.isArray.
+    }
+
+    // Do not enumerate, serialize, inspect prototypes, or read toStringTag:
+    // all of those operations can execute user code on ordinary objects.
+    return "[Object]";
   }
 
-  return Object.prototype.toString.call(value);
+  return truncateDiagnosticText(String(value));
+}
+
+function isNativeError(value: object): boolean {
+  const brandCheck = (
+    Error as ErrorConstructor & {
+      readonly isError?: (candidate: unknown) => boolean;
+    }
+  ).isError;
+  return typeof brandCheck === "function" && brandCheck(value);
+}
+
+function quoteDiagnosticText(value: string): string {
+  return JSON.stringify(truncateDiagnosticText(value));
+}
+
+function truncateDiagnosticText(value: string): string {
+  if (value.length <= DIAGNOSTIC_VALUE_CODE_UNITS) {
+    return value;
+  }
+  return `${value.slice(0, DIAGNOSTIC_VALUE_CODE_UNITS - 1)}…`;
 }
 
 function addComponentFrame(error: unknown, frame: ComponentFrame): RenderError {

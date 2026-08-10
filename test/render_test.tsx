@@ -18,6 +18,7 @@ import {
   jsx as runtimeJsx,
   jsxTemplate as runtimeJsxTemplate,
 } from "../jsx-runtime.ts";
+import { rawNode as copiedRawNode } from "../src/model.ts?copy=runtime";
 
 function malformInstruction(
   base: Html,
@@ -89,6 +90,20 @@ Deno.test("HTML-native and boolean attributes serialize predictably", async () =
   );
 });
 
+Deno.test("boolean-like enumerated attributes serialize explicit tokens", async () => {
+  assertEquals(
+    await renderToString(
+      <div
+        contenteditable={false}
+        draggable
+        spellcheck={false}
+        writingsuggestions
+      />,
+    ),
+    '<div contenteditable="false" draggable="true" spellcheck="false" writingsuggestions="true"></div>',
+  );
+});
+
 Deno.test("fragments, arrays, promises, and iterables flatten in order", async () => {
   const later = Promise.resolve("three");
   const values = new Set<Renderable>(["one", 2, later]);
@@ -143,7 +158,7 @@ Deno.test("unsupported objects throw instead of stringifying implicitly", async 
   );
 
   assertStringIncludes(error.message, "Cannot render an object as a child");
-  assertStringIncludes(error.message, `Received: {"id":"123"}`);
+  assertStringIncludes(error.message, "Received: [Object]");
 });
 
 Deno.test("render errors retain the component path", async () => {
@@ -213,17 +228,37 @@ Deno.test("spread attributes are validated at render time", async () => {
   );
 });
 
-Deno.test("trusted instruction brands cannot be recreated globally", async () => {
+Deno.test("the shared protocol brand does not admit malformed instructions", async () => {
   const forged = {
     [Symbol.for("@bastianplsfix/html.node")]: true,
     nodeType: "raw",
-    value: "<script>not trusted</script>",
+    value: { markup: "<script>not trusted</script>" },
   } as unknown as Renderable;
 
   await assertRejects(
     () => renderToString(forged),
     RenderError,
-    "Cannot render an object as a child",
+    "Received a malformed raw HTML instruction",
+  );
+});
+
+Deno.test("the v1 protocol composes across independent copies", async () => {
+  assertEquals(
+    await renderToString(copiedRawNode("<i>independent 0.2 copy</i>")),
+    "<i>independent 0.2 copy</i>",
+  );
+});
+
+Deno.test("the published 0.1 raw instruction shape stays readable", async () => {
+  const legacyRaw = Object.freeze({
+    [Symbol.for("@bastianplsfix/html.node")]: true,
+    nodeType: "raw",
+    value: "<i>legacy runtime instruction</i>",
+  }) as unknown as Renderable;
+
+  assertEquals(
+    await renderToString(legacyRaw),
+    "<i>legacy runtime instruction</i>",
   );
 });
 

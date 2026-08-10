@@ -1,5 +1,65 @@
-import type { Children, Html } from "@bastianplsfix/html";
+import type {
+  Children,
+  CustomElementProps,
+  Html,
+  IntrinsicElementProps,
+} from "@bastianplsfix/html";
 import type { AriaAttributes, HTMLAttributes } from "../src/jsx_types.ts";
+import type { Html as IndependentlyResolvedHtml } from "../src/model.ts?copy=types";
+
+declare module "@bastianplsfix/html/jsx-runtime" {
+  namespace JSX {
+    interface IntrinsicElements {
+      "user-avatar": CustomElementProps<{
+        active?: boolean;
+        onready?: () => void;
+        payload?: { id: string };
+        priority?: number;
+        variant?: "compact" | "full";
+      }>;
+    }
+  }
+}
+
+type AvatarProps = CustomElementProps<{
+  active?: boolean;
+  onready?: () => void;
+  payload?: { id: string };
+  priority?: number;
+  variant?: "compact" | "full";
+}>;
+
+type Assert<Condition extends true> = Condition;
+type PrimaryAcceptsIndependent = Assert<
+  IndependentlyResolvedHtml extends Html ? true : false
+>;
+type IndependentAcceptsPrimary = Assert<
+  Html extends IndependentlyResolvedHtml ? true : false
+>;
+
+const validButtonProps: IntrinsicElementProps<"button"> = {
+  class: "primary",
+  type: "button",
+};
+const validAvatarProps: AvatarProps = {
+  active: false,
+  priority: 2,
+  variant: "compact",
+  "user-id": "123",
+};
+
+// @ts-expect-error `href` is not a button attribute.
+const invalidButtonProps: IntrinsicElementProps<"button"> = { href: "/" };
+
+const invalidAvatarVariant: AvatarProps = {
+  // @ts-expect-error augmented custom-element tokens stay narrow.
+  variant: "large",
+};
+
+const invalidAvatarPayload: AvatarProps = {
+  // @ts-expect-error custom-element augmentation cannot admit objects.
+  payload: { id: "123" },
+};
 
 function Layout(
   { title, children }: { title: string; children: Children },
@@ -54,7 +114,12 @@ const valid = (
       aria-rowindextext="Row one"
     />
     <div role="doc-pagebreak" />
-    <div contenteditable draggable spellcheck writingsuggestions />
+    <div
+      contenteditable={false}
+      draggable
+      spellcheck="false"
+      writingsuggestions
+    />
     <label for="email">Email</label>
     <input
       id="email"
@@ -114,7 +179,9 @@ const valid = (
       </g>
       <use href="#shape" xlink:href="#legacy-shape" />
     </svg>
-    <user-avatar user-id="123">Profile</user-avatar>
+    <user-avatar active priority={1} user-id="123" variant="full">
+      Profile
+    </user-avatar>
     <AsyncMessage value="safe text" />
   </Layout>
 );
@@ -184,6 +251,9 @@ const invalidArrayValue = <input value={["one", "two"]} />;
 // @ts-expect-error custom-element attributes cannot contain functions either.
 const invalidCustomEvent = <user-avatar onready={() => {}} />;
 
+// @ts-expect-error boolean-like enumerated attributes reject other tokens.
+const invalidDraggable = <div draggable="auto" />;
+
 void valid;
 void invalidImage;
 void invalidInput;
@@ -206,3 +276,13 @@ void invalidFormAlias;
 void invalidSrcdoc;
 void invalidArrayValue;
 void invalidCustomEvent;
+void invalidDraggable;
+void validButtonProps;
+void validAvatarProps;
+void invalidButtonProps;
+void invalidAvatarVariant;
+void invalidAvatarPayload;
+type _ProtocolCompatibility = [
+  PrimaryAcceptsIndependent,
+  IndependentAcceptsPrimary,
+];
