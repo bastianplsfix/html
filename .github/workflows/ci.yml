@@ -15,8 +15,16 @@ concurrency:
 
 jobs:
   check:
-    name: Check
+    name: Check (${{ matrix.label }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - deno_version: v2.1.x
+            label: minimum Deno 2.1
+          - deno_version: latest
+            label: latest stable Deno
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -24,14 +32,51 @@ jobs:
       - name: Set up Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: ${{ matrix.deno_version }}
+          cache: true
+
+      - name: Install locked dependencies
+        run: deno install --frozen
+
+      - name: Check package and documentation
+        run: deno task check
+
+  package:
+    name: Package and performance readiness
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up latest stable Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: latest
           cache: true
 
       - name: Install locked dependencies
         run: deno ci
 
-      - name: Check package and documentation
-        run: deno task check
+      - name: Verify publish contents and JSR requirements
+        run: deno publish --dry-run
+
+      - name: Check broad performance budgets
+        run: deno test bench/regression_budget.tsx
+
+  consumer:
+    name: Published-package consumer
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up latest stable Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: latest
+          cache: true
 
       - name: Install example dependencies
         run: deno ci
