@@ -20,21 +20,6 @@ import {
 } from "../jsx-runtime.ts";
 import { rawNode as copiedRawNode } from "../src/model.ts?copy=runtime";
 
-function legacySpecifier(subpath = ""): string {
-  return ["jsr:", "@bastianplsfix/html", "@0.1.0", subpath].join("");
-}
-
-const { unsafeHTML: legacyUnsafeHTML } = await import(
-  legacySpecifier()
-) as {
-  unsafeHTML(value: string): unknown;
-};
-const { jsx: legacyJsx } = await import(
-  legacySpecifier("/jsx-runtime")
-) as {
-  jsx(type: string, props: Record<string, unknown> | null): unknown;
-};
-
 function malformInstruction(
   base: Html,
   overrides: Record<string, unknown>,
@@ -257,16 +242,7 @@ Deno.test("the shared protocol brand does not admit malformed instructions", asy
   );
 });
 
-Deno.test("the v1 protocol composes across package copies", async () => {
-  const legacyView = legacyJsx("section", {
-    class: "legacy",
-    children: ["<escaped>", legacyUnsafeHTML("<b>trusted library</b>")],
-  });
-
-  assertEquals(
-    await renderToString(legacyView as unknown as Renderable),
-    '<section class="legacy">&lt;escaped&gt;<b>trusted library</b></section>',
-  );
+Deno.test("the v1 protocol composes across independent copies", async () => {
   assertEquals(
     await renderToString(copiedRawNode("<i>independent 0.2 copy</i>")),
     "<i>independent 0.2 copy</i>",

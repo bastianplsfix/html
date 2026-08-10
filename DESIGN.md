@@ -60,9 +60,12 @@ Once the package is published, a consumer can configure Deno like this:
 ```
 
 Skipping `script` and `style` leaves those raw-text elements for the runtime.
-This setting is required for the runtime to enforce their context-specific child
-rules; plain values are rejected and callers must use `scriptJSON()` or an
-explicit trusted raw instruction.
+This setting is security-critical: it is required for the runtime to enforce
+their context-specific child rules. Without it, Deno can place raw-text content
+inside a precompiled static template before normal child validation; the
+renderer detects and rejects that shape rather than emitting it. With the
+required configuration, plain values are rejected and callers must use
+`scriptJSON()` or an explicit trusted raw instruction.
 
 Deno's `jsx-key` lint rule targets reconciling UI renderers. It should be
 disabled for this runtime because server component lists have no identity or
@@ -229,6 +232,14 @@ export type Component<Props = Record<never, never>> = (
 
 This supports synchronous and asynchronous components without component classes,
 lifecycle methods, or a scheduler.
+
+`Html` participates in a versioned runtime protocol. Protocol version one uses a
+stable global brand so trusted component libraries and separately resolved
+compatible package copies—including `0.1`—can exchange instructions. Every
+instruction is still validated before traversal; unknown protocol versions and
+malformed shapes fail closed. The brand distinguishes framework instructions
+from ordinary application values, but does not attempt to sandbox hostile code
+that already executes in the server process.
 
 ## Rendering semantics
 
@@ -479,7 +490,9 @@ instructions:
 `scriptJSON()` is the narrow helper for JSON data. `unsafeHTML()` performs no
 sanitization and is also unsafe in JavaScript and CSS contexts; its input must
 already be trusted for the specific raw-text language. This enforcement depends
-on keeping `script` and `style` in `jsxPrecompileSkipElements`.
+on keeping `script` and `style` in `jsxPrecompileSkipElements`. Removing either
+entry produces a precompiled raw-text template that the renderer rejects as an
+unsupported, unsafe configuration.
 
 ## Attribute behavior
 
@@ -496,8 +509,12 @@ Intrinsic elements use server-oriented serialization:
 
 The rules are:
 
-- `null`, `undefined`, and `false` omit the attribute;
-- `true` emits a bare attribute;
+- `null` and `undefined` omit the attribute;
+- for native presence attributes, `false` omits the attribute and `true` emits
+  it bare;
+- for the enumerated boolean-like attributes `contenteditable`, `draggable`,
+  `spellcheck`, and `writingsuggestions`, booleans emit quoted `"true"` or
+  `"false"` tokens;
 - strings, numbers, and bigints emit escaped quoted values;
 - functions, symbols, and objects throw;
 - spread attribute names and values are validated before serialization;

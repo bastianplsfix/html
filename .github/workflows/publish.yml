@@ -16,6 +16,7 @@ jobs:
   verify:
     name: Verify release candidate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -65,6 +66,7 @@ jobs:
     name: Publish to JSR
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: jsr
     permissions:
       contents: read
@@ -85,6 +87,7 @@ jobs:
     name: Verify published package
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -97,14 +100,20 @@ jobs:
           deno-version: latest
 
       - name: Check exact published version and entrypoints
+        env:
+          SMOKE_TEMP_ROOT: ${{ runner.temp }}
         run: >-
-          deno run --allow-read=deno.json --allow-import=jsr.io
+          deno run
+          --allow-read=deno.json,.github/scripts/published_consumer.tsx
+          --allow-write=${{ runner.temp }} --allow-run=deno
+          --allow-env=SMOKE_TEMP_ROOT
           .github/scripts/published_smoke.ts
 
   release:
     name: Create GitHub release
     needs: published-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:

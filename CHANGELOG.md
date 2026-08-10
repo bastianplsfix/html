@@ -22,6 +22,8 @@ uses semantic versioning while its public API is still evolving below `1.0.0`.
   integrity-checked source snapshots, including generated-file drift checks.
 - Adversarial protocol, cancellation-race, arbitrary-Unicode, large-payload, and
   WHATWG parser-conformance coverage.
+- Deterministic release-version drift checks, an exact-version precompiled TSX
+  consumer smoke test, and packaged third-party notices for generated type data.
 
 ### Security
 
@@ -33,14 +35,20 @@ uses semantic versioning while its public API is still evolving below `1.0.0`.
 - Validate user-controlled thenable and iterator protocols, reject malformed
   results, detect resolution cycles, and preserve primary failures through
   iterator cleanup.
-- Keep the internal trusted-HTML brand module-private and validate every branded
-  instruction shape before emitting output.
+- Validate every branded instruction shape before emitting output. Compatible
+  package copies share the version-one runtime protocol; unknown protocol
+  versions and malformed instructions fail closed.
+- Reject precompiled `script` and `style` templates when the required
+  `jsxPrecompileSkipElements` configuration is missing.
 
 ### Changed
 
 - Attribute and raw-text failures now include component or element context in
   `RenderError` diagnostics.
 - Custom-element attributes are constrained to serializable server values.
+- Boolean values for `contenteditable`, `draggable`, `spellcheck`, and
+  `writingsuggestions` serialize as quoted `"true"` or `"false"` tokens instead
+  of presence-attribute shorthand.
 - SVG types use serialized names such as `stroke-linecap` instead of React
   aliases such as `strokeLinecap`.
 - Buffered rendering now uses a bounded synchronous continuation path, and
@@ -48,6 +56,19 @@ uses semantic versioning while its public API is still evolving below `1.0.0`.
   These internal fast paths keep the public asynchronous API unchanged.
 - Cancellation is explicitly cooperative: signal aborts remain prompt, while
   reader cancellation waits for finite iterator cleanup.
+
+### Upgrade notes
+
+- Keep `script` and `style` in `jsxPrecompileSkipElements`. This is a security
+  prerequisite: omitting either entry lets Deno precompile raw-text contents
+  before the runtime can validate their context.
+- Dynamic `on*` and `srcdoc` attributes that previously serialized now throw.
+- A boolean `false` for an enumerated boolean-like attribute now emits the
+  meaningful `"false"` token rather than omitting the attribute. Native presence
+  attributes retain bare-`true`/omitted-`false` behavior.
+- Trusted component libraries can pass `Html` between separate `0.1` and
+  compatible `0.2` package copies through protocol version one. The protocol is
+  an interoperability contract, not a sandbox for hostile application code.
 
 ## 0.1.0 — 2026-08-09
 

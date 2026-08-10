@@ -62,6 +62,13 @@ export function ConceptsPage(): Html {
             </tbody>
           </table>
         </div>
+        <p>
+          Trusted component libraries can exchange <code>Html</code>{" "}
+          instructions across compatible package copies through the version-one
+          runtime protocol. Unknown or malformed instructions are rejected. The
+          protocol prevents accidental value confusion; it is not a sandbox for
+          hostile code already running in the process.
+        </p>
       </section>
 
       <section id="components">
@@ -149,12 +156,18 @@ export function ConceptsPage(): Html {
         <p>Attributes follow native HTML names and serialization rules:</p>
         <ul>
           <li>
-            <code>null</code>, <code>undefined</code>, and <code>false</code>
-            {" "}
-            omit an attribute.
+            <code>null</code> and <code>undefined</code> omit an attribute.
           </li>
           <li>
-            <code>true</code> produces a bare boolean attribute.
+            Presence attributes render bare for <code>true</code>{" "}
+            and are omitted for <code>false</code>.
+          </li>
+          <li>
+            Enumerated boolean-like attributes such as <code>draggable</code>
+            {" "}
+            serialize booleans as quoted <code>true</code> or <code>false</code>
+            {" "}
+            tokens.
           </li>
           <li>Strings and numbers become escaped quoted values.</li>
           <li>Objects, symbols, and functions throw.</li>

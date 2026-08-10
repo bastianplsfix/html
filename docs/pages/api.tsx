@@ -188,6 +188,30 @@ export function ApiPage(): Html {
         <p>A deferred server component with no instances or lifecycle.</p>
       </ApiEntry>
 
+      <ApiEntry
+        name="IntrinsicElementProps"
+        signature="type IntrinsicElementProps<Tag> = JSX.IntrinsicElements[Tag]"
+      >
+        <p>
+          Returns the generated props for one intrinsic tag. Use it when a
+          wrapper component should accept the same server-native attributes as
+          an element such as <code>button</code> or <code>svg</code>.
+        </p>
+      </ApiEntry>
+
+      <ApiEntry
+        name="CustomElementProps"
+        signature="type CustomElementProps<Props extends object> = ..."
+      >
+        <p>
+          Constrains an application's custom-element augmentation to
+          serializable attributes. Add a concrete tag to the JSX runtime's
+          <code>IntrinsicElements</code>{" "}
+          interface; function values, objects, inline <code>on*</code>{" "}
+          handlers, and <code>srcdoc</code> remain rejected.
+        </p>
+      </ApiEntry>
+
       <Callout title="Choose the response boundary deliberately">
         <p>
           <code>renderToString()</code>{" "}

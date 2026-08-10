@@ -10,8 +10,12 @@ uses protected releases.
 
 1. Work from a clean, current `main` branch.
 2. Update `deno.json`, `CHANGELOG.md`, and documentation install examples to the
-   same version. Leave the standalone published-package example on the latest
-   version that actually exists in JSR until the new release is available.
+   same version. `deno task version:check` verifies the changelog's first
+   release heading, README and design examples, documentation examples, sidebar
+   series, and response-header assertion. Leave the standalone `examples/hello`
+   package on the latest version that actually exists in JSR until the new
+   release is available; it is deliberately excluded from this pre-publish drift
+   check.
 3. Run the reproducible local checks:
 
    ```sh
@@ -26,6 +30,10 @@ uses protected releases.
    pull request.
 5. Merge the release commit only after the minimum-version and latest-stable CI
    jobs pass.
+6. Review the version's upgrade notes. In particular, confirm every documented
+   consumer configuration keeps `script` and `style` in
+   `jsxPrecompileSkipElements`; that setting is part of the raw-text security
+   contract.
 
 ## Publish
 
@@ -39,8 +47,11 @@ git push origin vX.Y.Z
 The tag workflow verifies that the tagged commit is on `main`, checks the
 version and changelog section, repeats the full checks and JSR dry-run, then
 publishes with provenance. Separate resumable jobs smoke-test the exact
-published version and create or update a GitHub release from the changelog
-notes. Do not publish the same version manually; JSR versions are immutable.
+published version by compiling and running a real precompiled TSX consumer
+against every entrypoint, then create or update a GitHub release from the
+changelog notes. Registry-propagation failures are retried only in the smoke
+job; `deno publish` itself runs exactly once. Do not publish the same version
+manually; JSR versions are immutable.
 
 After the workflow completes, verify the package page, provenance, generated API
 documentation, GitHub release, standalone published-package example, and the

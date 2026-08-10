@@ -8,7 +8,7 @@ Deno release for production deployments.
 
 [Documentation](https://bastianplsfix-html.bs.deno.net) ·
 [JSR](https://jsr.io/@bastianplsfix/html) · [Changelog](./CHANGELOG.md) ·
-[Design](./DESIGN.md)
+[Design](./DESIGN.md) · [Third-party notices](./THIRD_PARTY_NOTICES.md)
 
 The `0.x` API is usable but still evolving. Rendering and escaping semantics are
 treated as compatibility contracts; new public capabilities land in minor
@@ -43,6 +43,12 @@ deno add jsr:@bastianplsfix/html@^0.2.0
 The renderer has no reconciliation, so JSX keys have no meaning. Excluding
 Deno's client-oriented `jsx-key` lint rule keeps mapped server components free
 of false warnings.
+
+> **Important:** `jsxPrecompileSkipElements` is security-critical. Keep both
+> `script` and `style` in the list: otherwise Deno may compile their contents
+> into static template strings before normal raw-text child validation. The
+> renderer rejects that precompiled shape defensively, but it cannot render the
+> element until the required skip configuration is restored.
 
 ## Render a view
 
@@ -86,6 +92,12 @@ make their executable contexts safe.
 See the [security model](https://bastianplsfix-html.bs.deno.net/security) for
 the trust boundary and context-specific guidance.
 
+Compatible copies of the package share the version-one `Html` instruction
+protocol, so trusted component libraries can return `Html` even when Deno
+resolves a separate compatible package copy. Unknown protocols and malformed
+instructions are rejected. The brand prevents accidental value confusion; it is
+not a security boundary against hostile code already executing in the process.
+
 URL escaping is intentionally separate from URL policy. Both renderers can
 report dangerous dynamic schemes without rewriting output:
 
@@ -100,6 +112,12 @@ const body = await renderToString(view, {
 Use the callback for development diagnostics, or throw from it when the
 application wants warnings to fail rendering. Applications must still validate
 allowed schemes and destinations.
+
+Native presence attributes use the usual server semantics: `true` emits the bare
+attribute and `false` omits it. Enumerated boolean-like attributes—
+`contenteditable`, `draggable`, `spellcheck`, and `writingsuggestions`—instead
+serialize booleans as the quoted tokens `"true"` and `"false"`, because a
+present `false` token is meaningfully different from an omitted attribute.
 
 ## Stream a view
 

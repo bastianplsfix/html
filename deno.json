@@ -35,20 +35,23 @@
     "bench": "deno bench bench/",
     "bench:check": "deno test bench/regression_budget.tsx",
     "bench:profile": "deno run --v8-flags=--expose-gc bench/profile.tsx",
-    "check": "deno task types:check && deno fmt --check && deno fmt --check .github/scripts && deno lint && deno lint .github/scripts && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts bench/*.tsx docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx tools/*.ts .github/scripts/*.ts && deno task doc:lint && deno test --allow-read=docs/static/styles.css && deno test --config test/deno.dev.json test/dev_diagnostics.tsx && deno test .github/scripts/release_test.ts",
+    "check": "deno task types:check && deno task version:check && deno fmt --check && deno fmt --check .github/scripts && deno lint && deno lint .github/scripts && deno check mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts bench/*.tsx docs/main.ts docs/server.ts docs/test/handler_test.ts test/*.tsx tools/*.ts .github/scripts/*.ts .github/scripts/*.tsx && deno task doc:lint && deno test --allow-read=docs/static/styles.css && deno task test:interop && deno test --config test/deno.dev.json test/dev_diagnostics.tsx && deno test .github/scripts/release_test.ts",
     "doc:lint": "deno doc --lint mod.ts jsx-runtime.ts jsx-dev-runtime.ts response.ts",
     "docs": "deno serve --watch --allow-read=docs/static/styles.css docs/main.ts",
     "docs:start": "deno serve --allow-read=docs/static/styles.css docs/main.ts",
     "test": "deno test --allow-read=docs/static/styles.css",
     "test:dev": "deno test --config test/deno.dev.json test/dev_diagnostics.tsx",
+    "test:interop": "deno test --no-lock --config test/deno.interop.json test/version_interop.ts",
     "test:watch": "deno test --allow-read=docs/static/styles.css --watch",
     "types:check": "deno run --allow-read=src/jsx_types.ts tools/generate_jsx_types.ts --check",
-    "types:generate": "deno run --allow-write=src/jsx_types.ts tools/generate_jsx_types.ts"
+    "types:generate": "deno run --allow-write=src/jsx_types.ts tools/generate_jsx_types.ts",
+    "version:check": "deno run --allow-read=deno.json,CHANGELOG.md,README.md,DESIGN.md,docs/content/examples.ts,docs/pages/api.tsx,docs/components/layout.tsx,docs/test/handler_test.ts .github/scripts/release.ts version"
   },
   "publish": {
     "include": [
       "deno.json",
       "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "README.md",
       "CHANGELOG.md",
       "CONTRIBUTING.md",
