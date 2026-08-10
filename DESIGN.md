@@ -768,19 +768,21 @@ security work below build on the same value semantics.
 - [x] pending-operation and cancellation race tests;
 - [x] Unicode property and large-payload escaping tests;
 - [x] WHATWG HTML parser conformance tests;
-- [ ] richer development source locations under precompile;
+- Deno precompile source locations remain a compiler limitation rather than a
+  renderer roadmap item; `react-jsxdev` diagnostics are supported;
 - [x] source-aware component diagnostics under `react-jsxdev`;
 - [x] development warnings for dangerous URL schemes;
 - [x] dynamic inline-event and `srcdoc` rejection;
 - [x] stricter `script` and `style` raw-text policies;
-- [x] broader HTML and SVG tag coverage checked against Deno's TypeScript DOM
-      maps;
+- [x] deterministic living-standard HTML, SVG, and ARIA type generation from
+      pinned source snapshots, with offline drift checks;
 - [x] explicit inline SVG coverage with serialized attribute names;
 - [x] serializable custom-element attribute refinements;
 - [x] baseline buffered and streaming benchmarks;
 - [x] detailed time-to-first-byte, memory, chunk, slow-consumer, and
       cancellation profiling;
-- [ ] synchronous fast paths.
+- [x] measured synchronous buffered fast paths and bounded stream chunk
+      coalescing without changing the public async API.
 
 ## Contract-defining test
 

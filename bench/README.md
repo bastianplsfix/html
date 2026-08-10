@@ -55,3 +55,23 @@ reader result. Async fixtures use resolved promises deliberately, so they
 measure renderer scheduling overhead, not database or network latency. Chunk
 boundaries are an implementation detail; their metrics exist to reveal
 regressions such as excessively small chunks under slow consumers.
+
+## Reference optimization run
+
+The synchronous fast path and bounded stream coalescing were accepted after a
+same-machine before/after profile on 2026-08-10 using Deno 2.9.5 on Apple arm64.
+The table reports medians from three iterations; it is evidence for that change,
+not a portable performance promise.
+
+| Fixture           | Buffered before → after | Stream before → after | Chunks before → after |
+| ----------------- | ----------------------: | --------------------: | --------------------: |
+| 1,000-row list    |       15.947 → 2.481 ms |     19.384 → 6.940 ms |           10,752 → 79 |
+| 250-level tree    |       49.150 → 0.375 ms |    52.186 → 27.602 ms |           1,001 → 495 |
+| 1,000 sync values |        4.095 → 1.668 ms |      6.564 → 2.173 ms |            5,002 → 32 |
+| 250 async values  |        1.279 → 0.584 ms |      2.578 → 1.484 ms |           1,252 → 251 |
+
+The throttled-consumer fixture fell from 1045.727 ms to 16.360 ms. The cost was
+a small first-byte delay from bounded coalescing: 0.083 ms for the list, 0.064
+ms for the synchronous iterable, and 0.026 ms for the static template. Exact
+values will vary by machine; rerun the profiler instead of treating this table
+as a regression threshold.
