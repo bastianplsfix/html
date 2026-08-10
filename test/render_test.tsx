@@ -6,12 +6,28 @@ import {
 } from "@std/assert";
 import {
   doctype,
+  type Html,
   type Renderable,
   RenderError,
+  renderToStream,
   renderToString,
   scriptJSON,
   unsafeHTML,
 } from "@bastianplsfix/html";
+import {
+  jsx as runtimeJsx,
+  jsxTemplate as runtimeJsxTemplate,
+} from "../jsx-runtime.ts";
+
+function malformInstruction(
+  base: Html,
+  overrides: Record<string, unknown>,
+): Renderable {
+  const malformed = { ...base, ...overrides };
+  const [brand] = Object.getOwnPropertySymbols(base);
+  Object.defineProperty(malformed, brand, { value: true });
+  return malformed as Renderable;
+}
 
 Deno.test("interpolated strings are escaped", async () => {
   const attack = `<script>alert("hello")</script>`;
@@ -197,6 +213,95 @@ Deno.test("spread attributes are validated at render time", async () => {
   );
 });
 
+Deno.test("trusted instruction brands cannot be recreated globally", async () => {
+  const forged = {
+    [Symbol.for("@bastianplsfix/html.node")]: true,
+    nodeType: "raw",
+    value: "<script>not trusted</script>",
+  } as unknown as Renderable;
+
+  await assertRejects(
+    () => renderToString(forged),
+    RenderError,
+    "Cannot render an object as a child",
+  );
+});
+
+Deno.test("malformed branded instructions fail before trusted output", async () => {
+  function Component() {
+    return "safe";
+  }
+
+  const malformed = [
+    malformInstruction(unsafeHTML("safe"), { value: { unsafe: true } }),
+    malformInstruction(runtimeJsx("div", {}), { props: null }),
+    malformInstruction(runtimeJsx(Component, {}), {
+      component: "not a function",
+    }),
+    malformInstruction(runtimeJsxTemplate(["<p>", "</p>"], "safe"), {
+      strings: ["<p>"],
+    }),
+  ];
+
+  for (const instruction of malformed) {
+    await assertRejects(
+      () => renderToString(instruction),
+      RenderError,
+      "Received a malformed",
+    );
+  }
+});
+
+Deno.test("element diagnostics are structured and compose with components", async () => {
+  const source = {
+    fileName: "views/link.tsx",
+    lineNumber: 8,
+    columnNumber: 3,
+  };
+  const malformed = malformInstruction(runtimeJsx("a", {}), {
+    props: { "bad name": "value" },
+    source,
+  });
+
+  function Navigation() {
+    return malformed;
+  }
+
+  const error = await assertRejects(
+    () => renderToString(<Navigation />),
+    RenderError,
+  );
+
+  assertEquals(error.element, { name: "a", source });
+  assert(Object.isFrozen(error.element));
+  assertStringIncludes(error.message, "Element:");
+  assertStringIncludes(error.message, "at <a> (views/link.tsx:8:3)");
+  assertStringIncludes(error.message, "at <Navigation>");
+  assert(error.cause instanceof TypeError);
+});
+
+Deno.test("void children fail before attributes or stream output", async () => {
+  const malformed = malformInstruction(runtimeJsx("input", {}), {
+    props: {
+      children: "not allowed",
+      "bad name": "not serialized",
+    },
+  });
+
+  await assertRejects(
+    () => renderToString(malformed),
+    RenderError,
+    "Void element <input> cannot have children",
+  );
+
+  const reader = renderToStream(malformed).getReader();
+  await assertRejects(
+    () => reader.read(),
+    RenderError,
+    "Void element <input> cannot have children",
+  );
+});
+
 Deno.test("an abort signal stops buffered rendering", async () => {
   const controller = new AbortController();
   controller.abort(new DOMException("Request ended", "AbortError"));
@@ -211,4 +316,5 @@ Deno.test("an abort signal stops buffered rendering", async () => {
 Deno.test("HTML instruction objects are immutable", () => {
   const view = <div>content</div>;
   assert(Object.isFrozen(view));
+  assertEquals(Object.getOwnPropertySymbols({ ...view }), []);
 });

@@ -61,9 +61,18 @@ export interface ComponentFrame {
   readonly source?: SourceLocation;
 }
 
-interface ElementFrame {
-  readonly tagName: string;
+/** Intrinsic element associated with a rendering failure. */
+export interface ElementFrame {
+  /** Serialized intrinsic tag name. */
+  readonly name: string;
+  /** JSX source location retained by the development runtime, when available. */
   readonly source?: SourceLocation;
+}
+
+/** Options for constructing a structured rendering error. */
+export interface RenderErrorOptions extends ErrorOptions {
+  /** Intrinsic element associated with the failure. */
+  readonly element?: ElementFrame;
 }
 
 /** An error enriched with the server-component path that produced it. */
@@ -72,6 +81,8 @@ export class RenderError extends Error {
   readonly componentStack: readonly ComponentFrame[];
   /** Original diagnostic text without the formatted component stack. */
   readonly detail: string;
+  /** Intrinsic element associated with the failure, when known. */
+  readonly element?: ElementFrame;
 
   /**
    * Create a rendering error.
@@ -82,17 +93,20 @@ export class RenderError extends Error {
    *
    * @param detail Diagnostic text without a formatted component stack.
    * @param componentStack Existing frames, ordered innermost first.
-   * @param options Standard error options, including an underlying cause.
+   * @param options Error cause and optional intrinsic-element context.
    */
   constructor(
     detail: string,
     componentStack: readonly ComponentFrame[] = [],
-    options?: ErrorOptions,
+    options?: RenderErrorOptions,
   ) {
-    super(formatMessage(detail, componentStack), options);
+    super(formatMessage(detail, componentStack, options?.element), options);
     this.name = "RenderError";
     this.detail = detail;
     this.componentStack = Object.freeze([...componentStack]);
+    if (options?.element) {
+      this.element = Object.freeze({ ...options.element });
+    }
   }
 }
 
@@ -121,12 +135,19 @@ export async function renderToString(
   };
   const chunks: string[] = [];
 
-  for await (const chunk of renderValue(view, context)) {
+  try {
+    for await (const chunk of renderValue(view, context)) {
+      throwIfAborted(context.signal);
+      chunks.push(chunk);
+    }
     throwIfAborted(context.signal);
-    chunks.push(chunk);
+    return chunks.join("");
+  } catch (error) {
+    if (isAbortReason(error, context.signal)) {
+      throw error;
+    }
+    throw normalizeRenderError(error);
   }
-  throwIfAborted(context.signal);
-  return chunks.join("");
 }
 
 /**
@@ -215,11 +236,16 @@ export function renderToStream(
           }
         }
       } catch (error) {
+        if (settled || cancelled) {
+          return;
+        }
         settled = true;
         removeAbortListener();
-        if (!cancelled) {
-          controller.error(error);
-        }
+        controller.error(
+          isAbortReason(error, context.signal)
+            ? error
+            : normalizeRenderError(error),
+        );
       }
     },
 
@@ -297,6 +323,8 @@ async function* renderNode(
   node: HtmlNode,
   context: RenderContext,
 ): AsyncGenerator<string, void, void> {
+  assertValidHtmlNode(node);
+
   switch (node.nodeType) {
     case "raw":
       yield node.value;
@@ -312,10 +340,6 @@ async function* renderNode(
       yield* renderValue(node.children, context);
       return;
     case "template":
-      if (node.strings.length !== node.values.length + 1) {
-        throw new RenderError("Received a malformed precompiled JSX template.");
-      }
-
       for (let index = 0; index < node.values.length; index++) {
         yield node.strings[index];
         yield* renderValue(node.values[index], context);
@@ -328,7 +352,119 @@ async function* renderNode(
     case "element":
       yield* renderElement(node, context);
       return;
+    default:
+      throw new RenderError("Received an unknown HTML instruction.");
   }
+}
+
+function assertValidHtmlNode(node: HtmlNode): void {
+  const instruction = node as unknown as Record<PropertyKey, unknown>;
+
+  switch (instruction.nodeType) {
+    case "raw":
+      assertInstructionField(instruction, "value", "string");
+      return;
+    case "escaped":
+      assertInstructionOwnField(instruction, "value");
+      return;
+    case "attribute":
+      assertInstructionField(instruction, "name", "string");
+      assertInstructionOwnField(instruction, "value");
+      return;
+    case "fragment":
+      assertInstructionOwnField(instruction, "children");
+      return;
+    case "template":
+      if (
+        !Array.isArray(instruction.strings) ||
+        !instruction.strings.every((value) => typeof value === "string") ||
+        !Array.isArray(instruction.values) ||
+        instruction.strings.length !== instruction.values.length + 1
+      ) {
+        throw malformedInstruction("template");
+      }
+      return;
+    case "component":
+      assertInstructionField(instruction, "component", "function");
+      assertInstructionProps(instruction, "component");
+      assertInstructionSource(instruction, "component");
+      return;
+    case "element":
+      assertInstructionField(instruction, "tagName", "string");
+      assertInstructionProps(instruction, "element");
+      assertInstructionSource(instruction, "element");
+      return;
+    default:
+      throw new RenderError("Received an unknown HTML instruction.");
+  }
+}
+
+function assertInstructionOwnField(
+  instruction: Record<PropertyKey, unknown>,
+  field: string,
+): void {
+  if (!Object.hasOwn(instruction, field)) {
+    throw malformedInstruction(String(instruction.nodeType));
+  }
+}
+
+function assertInstructionField(
+  instruction: Record<PropertyKey, unknown>,
+  field: string,
+  expectedType: "function" | "string",
+): void {
+  const valid = expectedType === "string"
+    ? typeof instruction[field] === "string"
+    : typeof instruction[field] === "function";
+  if (!valid) {
+    throw malformedInstruction(String(instruction.nodeType));
+  }
+}
+
+function assertInstructionProps(
+  instruction: Record<PropertyKey, unknown>,
+  nodeType: "component" | "element",
+): void {
+  const props = instruction.props;
+  if (typeof props !== "object" || props === null || !isPlainRecord(props)) {
+    throw malformedInstruction(nodeType);
+  }
+}
+
+function assertInstructionSource(
+  instruction: Record<PropertyKey, unknown>,
+  nodeType: "component" | "element",
+): void {
+  const source = instruction.source;
+  if (source === undefined) {
+    return;
+  }
+  if (typeof source !== "object" || source === null || !isPlainRecord(source)) {
+    throw malformedInstruction(nodeType);
+  }
+
+  const location = source as Record<PropertyKey, unknown>;
+  if (
+    (location.fileName !== undefined &&
+      typeof location.fileName !== "string") ||
+    (location.lineNumber !== undefined &&
+      (typeof location.lineNumber !== "number" ||
+        !Number.isFinite(location.lineNumber))) ||
+    (location.columnNumber !== undefined &&
+      (typeof location.columnNumber !== "number" ||
+        !Number.isFinite(location.columnNumber)))
+  ) {
+    throw malformedInstruction(nodeType);
+  }
+}
+
+function isPlainRecord(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function malformedInstruction(nodeType: string): RenderError {
+  return new RenderError(`Received a malformed ${nodeType} HTML instruction.`);
 }
 
 async function* renderComponent(
@@ -357,26 +493,27 @@ async function* renderElement(
 ): AsyncGenerator<string, void, void> {
   const tagName = node.tagName;
   const children = node.props.children;
+  const frame: ElementFrame = {
+    name: tagName,
+    ...(node.source ? { source: node.source } : {}),
+  };
+  let openingTag: string;
+  let isVoid: boolean;
 
   try {
-    yield serializeOpeningTag(node, context);
+    assertValidTagName(tagName);
+    isVoid = VOID_ELEMENTS.has(tagName.toLowerCase());
+    if (isVoid && hasRenderableChildren(children)) {
+      throw new RenderError(`Void element <${tagName}> cannot have children.`);
+    }
+    openingTag = serializeOpeningTag(node, context);
   } catch (error) {
-    throw addElementFrame(error, {
-      tagName,
-      ...(node.source ? { source: node.source } : {}),
-    });
+    throw addElementFrame(error, frame);
   }
 
-  if (VOID_ELEMENTS.has(tagName.toLowerCase())) {
-    if (hasRenderableChildren(children)) {
-      throw addElementFrame(
-        new RenderError(`Void element <${tagName}> cannot have children.`),
-        {
-          tagName,
-          ...(node.source ? { source: node.source } : {}),
-        },
-      );
-    }
+  yield openingTag;
+
+  if (isVoid) {
     return;
   }
 
@@ -387,10 +524,7 @@ async function* renderElement(
       if (context.signal?.aborted && error === context.signal.reason) {
         throw error;
       }
-      throw addElementFrame(error, {
-        tagName,
-        ...(node.source ? { source: node.source } : {}),
-      });
+      throw addElementFrame(error, frame);
     }
   } else {
     yield* renderValue(children, context);
@@ -402,7 +536,6 @@ function serializeOpeningTag(
   node: ElementNode,
   context: RenderContext,
 ): string {
-  assertValidTagName(node.tagName);
   let openingTag = `<${node.tagName}`;
 
   for (const [name, value] of Object.entries(node.props)) {
@@ -704,7 +837,10 @@ function addComponentFrame(error: unknown, frame: ComponentFrame): RenderError {
     return new RenderError(
       error.detail,
       [...error.componentStack, frame],
-      { cause: error.cause ?? error },
+      {
+        cause: error.cause ?? error,
+        ...(error.element ? { element: error.element } : {}),
+      },
     );
   }
 
@@ -716,41 +852,67 @@ function addComponentFrame(error: unknown, frame: ComponentFrame): RenderError {
 }
 
 function addElementFrame(error: unknown, frame: ElementFrame): RenderError {
-  const location = formatSourceLocation(frame.source);
-  const elementDetail = `Element: <${frame.tagName}>${location}`;
-
   if (error instanceof RenderError) {
+    if (error.element) {
+      return error;
+    }
     return new RenderError(
-      `${error.detail}\n\n${elementDetail}`,
+      error.detail,
       error.componentStack,
-      { cause: error.cause ?? error },
+      { cause: error.cause ?? error, element: frame },
     );
   }
 
   if (error instanceof Error) {
-    return new RenderError(`${error.message}\n\n${elementDetail}`, [], {
-      cause: error,
-    });
+    return new RenderError(error.message, [], { cause: error, element: frame });
   }
 
-  return new RenderError(`${String(error)}\n\n${elementDetail}`, [], {
-    cause: error,
-  });
+  return new RenderError(String(error), [], { cause: error, element: frame });
 }
 
 function formatMessage(
   detail: string,
   componentStack: readonly ComponentFrame[],
+  element?: ElementFrame,
 ): string {
-  if (componentStack.length === 0) {
+  if (componentStack.length === 0 && !element) {
     return detail;
   }
 
-  const lines = componentStack.map((frame) => {
-    return `  at <${frame.name}>${formatSourceLocation(frame.source)}`;
-  });
+  const sections: string[] = [detail];
 
-  return `${detail}\n\nComponent stack:\n${lines.join("\n")}`;
+  if (element) {
+    sections.push(`Element:\n${formatFrame(element)}`);
+  }
+
+  if (componentStack.length > 0) {
+    sections.push(
+      `Component stack:\n${componentStack.map(formatFrame).join("\n")}`,
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
+function formatFrame(frame: ComponentFrame | ElementFrame): string {
+  return `  at <${frame.name}>${formatSourceLocation(frame.source)}`;
+}
+
+function isAbortReason(
+  error: unknown,
+  signal: AbortSignal | undefined,
+): boolean {
+  return signal?.aborted === true && error === signal.reason;
+}
+
+function normalizeRenderError(error: unknown): RenderError {
+  if (error instanceof RenderError) {
+    return error;
+  }
+  if (error instanceof Error) {
+    return new RenderError(error.message, [], { cause: error });
+  }
+  return new RenderError(String(error), [], { cause: error });
 }
 
 function formatSourceLocation(source: SourceLocation | undefined): string {

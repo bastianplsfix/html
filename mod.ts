@@ -7,7 +7,9 @@
 export { doctype, scriptJSON, unsafeHTML } from "./src/helpers.ts";
 export {
   type ComponentFrame,
+  type ElementFrame,
   RenderError,
+  type RenderErrorOptions,
   type RenderOptions,
   renderToStream,
   renderToString,

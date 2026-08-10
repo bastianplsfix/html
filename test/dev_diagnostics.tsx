@@ -28,6 +28,7 @@ Deno.test("the development JSX transform locates invalid elements", async () => 
   );
 
   assertStringIncludes(error.message, "Invalid HTML attribute name");
-  assertStringIncludes(error.message, "Element: <div>");
+  assertStringIncludes(error.message, "Element:");
+  assertStringIncludes(error.message, "at <div>");
   assertStringIncludes(error.message, "dev_diagnostics.tsx:");
 });
