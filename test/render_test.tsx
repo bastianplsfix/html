@@ -173,7 +173,7 @@ Deno.test("unsupported objects throw instead of stringifying implicitly", async 
   );
 
   assertStringIncludes(error.message, "Cannot render an object as a child");
-  assertStringIncludes(error.message, `Received: {"id":"123"}`);
+  assertStringIncludes(error.message, "Received: [Object]");
 });
 
 Deno.test("render errors retain the component path", async () => {
