@@ -111,9 +111,18 @@ export class RenderError extends Error {
 }
 
 interface RenderContext {
+  readonly cleanupPolicy?: { awaitOnAbort: boolean };
   readonly onWarning?: (warning: RenderWarning) => void;
   readonly signal?: AbortSignal;
 }
+
+type ProtocolMethod = (this: unknown, ...args: unknown[]) => unknown;
+type ChildRenderer = (
+  value: unknown,
+  context: RenderContext,
+) => AsyncGenerator<string, void, void>;
+
+const NO_FAILURE: unique symbol = Symbol("no render failure");
 
 /**
  * Render a value to one buffered HTML string.
@@ -156,6 +165,8 @@ export async function renderToString(
  * Traversal starts when the stream is read and follows normal stream
  * backpressure. Rendering failures are delivered as stream errors. Cancelling
  * the stream, or aborting `options.signal`, also closes active async iterators.
+ * Reader cancellation waits for asynchronous iterator cleanup; signal aborts
+ * remain prompt and let uncooperative cleanup finish in the background.
  *
  * @param view Value, component instruction, or collection to render.
  * @param options Cancellation and warning-delivery options.
@@ -166,7 +177,9 @@ export function renderToStream(
   options: RenderOptions = {},
 ): ReadableStream<Uint8Array> {
   const cancellation = new AbortController();
+  const cleanupPolicy = { awaitOnAbort: false };
   const context: RenderContext = {
+    cleanupPolicy,
     ...(options.onWarning ? { onWarning: options.onWarning } : {}),
     signal: cancellation.signal,
   };
@@ -255,13 +268,14 @@ export function renderToStream(
       }
 
       cancelled = true;
+      cleanupPolicy.awaitOnAbort = true;
       cancellation.abort(reason);
+      removeAbortListener();
 
       try {
         await closeIterator();
       } finally {
         settled = true;
-        removeAbortListener();
       }
     },
   }, { highWaterMark: 0 });
@@ -296,23 +310,43 @@ async function* renderValue(
     return;
   }
 
-  if (isPromiseLike(value)) {
-    const resolved = await awaitWithSignal(value, context.signal);
+  const thenMethod = getThenMethod(value);
+  if (thenMethod) {
+    const resolved = await resolveAwaitable(value, thenMethod, context.signal);
     throwIfAborted(context.signal);
     yield* renderValue(resolved, context);
     return;
   }
 
-  if (isAsyncIterable(value)) {
-    yield* renderAsyncIterable(value, context);
+  const asyncIteratorMethod = getIteratorMethod(
+    value,
+    Symbol.asyncIterator,
+    "Symbol.asyncIterator",
+  );
+  if (asyncIteratorMethod) {
+    yield* renderProtocolIterable(
+      value,
+      asyncIteratorMethod,
+      true,
+      context,
+      renderValue,
+    );
     return;
   }
 
-  if (isIterable(value)) {
-    for (const child of value) {
-      yield* renderValue(child, context);
-      throwIfAborted(context.signal);
-    }
+  const iteratorMethod = getIteratorMethod(
+    value,
+    Symbol.iterator,
+    "Symbol.iterator",
+  );
+  if (iteratorMethod) {
+    yield* renderProtocolIterable(
+      value,
+      iteratorMethod,
+      false,
+      context,
+      renderValue,
+    );
     return;
   }
 
@@ -580,23 +614,49 @@ async function* renderRawTextValue(
     }
   }
 
-  if (typeof value === "object") {
-    if (isPromiseLike(value)) {
-      const resolved = await awaitWithSignal(value, context.signal);
+  if (typeof value === "object" && value !== null) {
+    const thenMethod = getThenMethod(value);
+    if (thenMethod) {
+      const resolved = await resolveAwaitable(
+        value,
+        thenMethod,
+        context.signal,
+      );
       yield* renderRawTextValue(resolved, context, tagName);
       return;
     }
 
-    if (isAsyncIterable(value)) {
-      yield* renderRawTextAsyncIterable(value, context, tagName);
+    const renderChild: ChildRenderer = (child, childContext) =>
+      renderRawTextValue(child, childContext, tagName);
+    const asyncIteratorMethod = getIteratorMethod(
+      value,
+      Symbol.asyncIterator,
+      "Symbol.asyncIterator",
+    );
+    if (asyncIteratorMethod) {
+      yield* renderProtocolIterable(
+        value,
+        asyncIteratorMethod,
+        true,
+        context,
+        renderChild,
+      );
       return;
     }
 
-    if (isIterable(value)) {
-      for (const child of value) {
-        yield* renderRawTextValue(child, context, tagName);
-        throwIfAborted(context.signal);
-      }
+    const iteratorMethod = getIteratorMethod(
+      value,
+      Symbol.iterator,
+      "Symbol.iterator",
+    );
+    if (iteratorMethod) {
+      yield* renderProtocolIterable(
+        value,
+        iteratorMethod,
+        false,
+        context,
+        renderChild,
+      );
       return;
     }
   }
@@ -625,81 +685,90 @@ async function* renderRawTextComponent(
   }
 }
 
-async function* renderRawTextAsyncIterable(
-  value: AsyncIterable<unknown>,
+async function* renderProtocolIterable(
+  value: object,
+  iteratorFactory: ProtocolMethod,
+  isAsync: boolean,
   context: RenderContext,
-  tagName: string,
+  renderChild: ChildRenderer,
 ): AsyncGenerator<string, void, void> {
-  const iterator = value[Symbol.asyncIterator]();
+  let iterator: object | undefined;
   let completed = false;
+  let primaryFailure: unknown | typeof NO_FAILURE = NO_FAILURE;
 
   try {
+    const candidate = Reflect.apply(iteratorFactory, value, []);
+    if (!isObjectLike(candidate)) {
+      throw protocolTypeError("Iterator factory must return an object.");
+    }
+    iterator = candidate;
+
+    const nextMethod = getRequiredProtocolMethod(iterator, "next");
     while (true) {
       throwIfAborted(context.signal);
-      const result = await awaitWithSignal(iterator.next(), context.signal);
-      if (result.done) {
+      const nextResult = Reflect.apply(nextMethod, iterator, []);
+      const result = isAsync
+        ? await resolveAwaitable(nextResult, undefined, context.signal)
+        : nextResult;
+      throwIfAborted(context.signal);
+
+      const step = readIteratorResult(result);
+      if (step.done) {
         completed = true;
         return;
       }
 
-      yield* renderRawTextValue(result.value, context, tagName);
+      yield* renderChild(step.value, context);
       throwIfAborted(context.signal);
     }
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
-    if (!completed && typeof iterator.return === "function") {
-      await iterator.return();
+    if (iterator && !completed) {
+      await finishIteratorCleanup(
+        iterator,
+        isAsync,
+        primaryFailure,
+        context,
+      );
     }
   }
 }
 
-async function* renderAsyncIterable(
-  value: AsyncIterable<unknown>,
+async function finishIteratorCleanup(
+  iterator: object,
+  isAsync: boolean,
+  primaryFailure: unknown | typeof NO_FAILURE,
   context: RenderContext,
-): AsyncGenerator<string, void, void> {
-  const iterator = value[Symbol.asyncIterator]();
-  let completed = false;
+): Promise<void> {
+  const cleanup = closeProtocolIterator(iterator, isAsync);
+
+  if (
+    primaryFailure !== NO_FAILURE &&
+    isAbortReason(primaryFailure, context.signal) &&
+    context.cleanupPolicy?.awaitOnAbort !== true
+  ) {
+    // Cancellation must not wait forever for an uncooperative iterator. The
+    // return hook is still invoked and any later rejection is handled.
+    void cleanup.catch(() => {});
+    return;
+  }
 
   try {
-    while (true) {
-      throwIfAborted(context.signal);
-      const result = await awaitWithSignal(iterator.next(), context.signal);
-      if (result.done) {
-        completed = true;
-        return;
-      }
-
-      yield* renderValue(result.value, context);
-      throwIfAborted(context.signal);
+    await cleanup;
+  } catch (cleanupFailure) {
+    if (primaryFailure === NO_FAILURE) {
+      throw cleanupFailure;
     }
-  } finally {
-    if (!completed && typeof iterator.return === "function") {
-      await iterator.return();
-    }
+    // IteratorClose never replaces the failure that caused traversal to
+    // unwind. This also composes across nested iterables.
   }
 }
 
 function hasRenderableChildren(value: unknown): boolean {
   return value !== null && value !== undefined && value !== false &&
     value !== true;
-}
-
-function isPromiseLike(value: object): value is PromiseLike<unknown> {
-  return "then" in value &&
-    typeof (value as { then?: unknown }).then === "function";
-}
-
-function isAsyncIterable(value: object): value is AsyncIterable<unknown> {
-  return Symbol.asyncIterator in value &&
-    typeof (value as { [Symbol.asyncIterator]?: unknown })[
-        Symbol.asyncIterator
-      ] ===
-      "function";
-}
-
-function isIterable(value: object): value is Iterable<unknown> {
-  return Symbol.iterator in value &&
-    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] ===
-      "function";
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -727,12 +796,153 @@ function rawTextChildError(tagName: string): RenderError {
   );
 }
 
-function awaitWithSignal<T>(
-  value: PromiseLike<T>,
+function getThenMethod(value: object): ProtocolMethod | undefined {
+  const method = Reflect.get(value, "then") as unknown;
+  return typeof method === "function" ? method as ProtocolMethod : undefined;
+}
+
+function getIteratorMethod(
+  value: object,
+  key: typeof Symbol.asyncIterator | typeof Symbol.iterator,
+  label: string,
+): ProtocolMethod | undefined {
+  const method = Reflect.get(value, key) as unknown;
+  if (method === null || method === undefined) {
+    return undefined;
+  }
+  if (typeof method !== "function") {
+    throw protocolTypeError(`${label} must be a function when present.`);
+  }
+  return method as ProtocolMethod;
+}
+
+function getRequiredProtocolMethod(
+  value: object,
+  name: "next",
+): ProtocolMethod {
+  const method = Reflect.get(value, name) as unknown;
+  if (typeof method !== "function") {
+    throw protocolTypeError(`Iterator ${name} must be a function.`);
+  }
+  return method as ProtocolMethod;
+}
+
+function readIteratorResult(
+  result: unknown,
+): { readonly done: true } | { readonly done: false; readonly value: unknown } {
+  if (!isObjectLike(result)) {
+    throw protocolTypeError("Iterator next() must return an object.");
+  }
+  if (!Reflect.has(result, "done")) {
+    throw protocolTypeError("Iterator next() result must include done.");
+  }
+
+  const done = Reflect.get(result, "done") as unknown;
+  if (typeof done !== "boolean") {
+    throw protocolTypeError("Iterator next() result done must be a boolean.");
+  }
+  if (done) {
+    return { done: true };
+  }
+  return { done: false, value: Reflect.get(result, "value") };
+}
+
+async function closeProtocolIterator(
+  iterator: object,
+  isAsync: boolean,
+): Promise<void> {
+  const returnMethod = Reflect.get(iterator, "return") as unknown;
+  if (returnMethod === null || returnMethod === undefined) {
+    return;
+  }
+  if (typeof returnMethod !== "function") {
+    throw protocolTypeError("Iterator return must be a function when present.");
+  }
+
+  const returnResult = Reflect.apply(
+    returnMethod as ProtocolMethod,
+    iterator,
+    [],
+  );
+  const result = isAsync
+    ? await resolveAwaitable(returnResult, undefined, undefined)
+    : returnResult;
+  if (!isObjectLike(result)) {
+    throw protocolTypeError("Iterator return() must return an object.");
+  }
+}
+
+async function resolveAwaitable(
+  value: unknown,
+  knownThenMethod: ProtocolMethod | undefined,
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
+  const seen = new Set<object>();
+  let current = value;
+  let thenMethod = knownThenMethod;
+
+  while (isObjectLike(current)) {
+    throwIfAborted(signal);
+    thenMethod ??= getThenMethod(current);
+    if (!thenMethod) {
+      return current;
+    }
+    if (seen.has(current)) {
+      throw protocolTypeError("Thenable resolution cycle detected.");
+    }
+    seen.add(current);
+
+    const settlement = await waitForNativePromise(
+      callThenOnce(current, thenMethod),
+      signal,
+    );
+    throwIfAborted(signal);
+    if (settlement.value === current) {
+      throw protocolTypeError("Thenable cannot resolve to itself.");
+    }
+
+    current = settlement.value;
+    thenMethod = undefined;
+  }
+
+  return current;
+}
+
+function callThenOnce(
+  target: object,
+  thenMethod: ProtocolMethod,
+): Promise<{ readonly value: unknown }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fulfill = (value: unknown) => {
+      if (!settled) {
+        settled = true;
+        // Wrapping prevents the native Promise implementation from recursively
+        // assimilating a hostile or self-resolving thenable.
+        resolve({ value });
+      }
+    };
+    const rejectOnce = (reason: unknown) => {
+      if (!settled) {
+        settled = true;
+        reject(reason);
+      }
+    };
+
+    try {
+      Reflect.apply(thenMethod, target, [fulfill, rejectOnce]);
+    } catch (error) {
+      rejectOnce(error);
+    }
+  });
+}
+
+function waitForNativePromise<T>(
+  promise: Promise<T>,
   signal: AbortSignal | undefined,
 ): Promise<T> {
   if (!signal) {
-    return Promise.resolve(value);
+    return promise;
   }
 
   signal.throwIfAborted();
@@ -743,7 +953,7 @@ function awaitWithSignal<T>(
     };
 
     signal.addEventListener("abort", onAbort, { once: true });
-    Promise.resolve(value).then(
+    promise.then(
       (result) => {
         signal.removeEventListener("abort", onAbort);
         resolve(result);
@@ -754,6 +964,15 @@ function awaitWithSignal<T>(
       },
     );
   });
+}
+
+function isObjectLike(value: unknown): value is object {
+  return (typeof value === "object" && value !== null) ||
+    typeof value === "function";
+}
+
+function protocolTypeError(message: string): TypeError {
+  return new TypeError(`Invalid render protocol: ${message}`);
 }
 
 function listenForAbort(
@@ -848,7 +1067,7 @@ function addComponentFrame(error: unknown, frame: ComponentFrame): RenderError {
     return new RenderError(error.message, [frame], { cause: error });
   }
 
-  return new RenderError(String(error), [frame], { cause: error });
+  return new RenderError(describeFailure(error), [frame], { cause: error });
 }
 
 function addElementFrame(error: unknown, frame: ElementFrame): RenderError {
@@ -867,7 +1086,10 @@ function addElementFrame(error: unknown, frame: ElementFrame): RenderError {
     return new RenderError(error.message, [], { cause: error, element: frame });
   }
 
-  return new RenderError(String(error), [], { cause: error, element: frame });
+  return new RenderError(describeFailure(error), [], {
+    cause: error,
+    element: frame,
+  });
 }
 
 function formatMessage(
@@ -912,7 +1134,15 @@ function normalizeRenderError(error: unknown): RenderError {
   if (error instanceof Error) {
     return new RenderError(error.message, [], { cause: error });
   }
-  return new RenderError(String(error), [], { cause: error });
+  return new RenderError(describeFailure(error), [], { cause: error });
+}
+
+function describeFailure(error: unknown): string {
+  try {
+    return String(error);
+  } catch {
+    return "Rendering failed with a non-Error value.";
+  }
 }
 
 function formatSourceLocation(source: SourceLocation | undefined): string {
