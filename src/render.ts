@@ -404,6 +404,13 @@ function renderBufferedValue(
         return renderBufferedValue(value, context, chunks);
       });
     }
+    // Even when a host-task yield is not due yet, break synchronous component
+    // recursion at every budget boundary. The occasional host-task escalation
+    // above exists for timer/request cancellation; this microtask continuation
+    // exists for stack safety.
+    return Promise.resolve().then(() => {
+      return renderBufferedValue(value, context, chunks);
+    });
   }
 
   if (value === null || value === undefined || typeof value === "boolean") {
@@ -1122,6 +1129,7 @@ async function* renderRawTextValue(
   }
 
   if (isHtml(value)) {
+    assertValidHtmlNode(value);
     switch (value.nodeType) {
       case "raw":
         yield value.value;

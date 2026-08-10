@@ -16,6 +16,7 @@ import {
   jsxEscape,
   jsxTemplate,
 } from "@bastianplsfix/html/jsx-runtime";
+import { HTML_NODE } from "../src/model.ts";
 
 function renderable(value: unknown): Renderable {
   return value as Renderable;
@@ -283,6 +284,39 @@ Deno.test("buffered traversal yields to timer-driven aborts", async () => {
   );
   assert(componentCalls > 0);
   assert(componentCalls < total);
+});
+
+Deno.test("buffered traversal bounds deeply recursive components", async () => {
+  function Deep({ depth }: { readonly depth: number }): Renderable {
+    return depth === 0 ? "complete" : <Deep depth={depth - 1} />;
+  }
+
+  assertEquals(
+    await renderToString(<Deep depth={30_000} />),
+    "complete",
+  );
+});
+
+Deno.test("raw-text rendering validates shared-brand instructions", async () => {
+  let coercionCalls = 0;
+  const malformed = Object.freeze({
+    [HTML_NODE]: true,
+    nodeType: "raw",
+    value: {
+      toString() {
+        coercionCalls++;
+        return "</script><img src=x onerror=alert(1)>";
+      },
+    },
+  });
+
+  const error = await assertRejects(
+    () => renderToString(<script>{renderable(malformed)}</script>),
+    RenderError,
+  );
+  assertStringIncludes(error.message, "malformed raw HTML instruction");
+  assertEquals(error.element?.name, "script");
+  assertEquals(coercionCalls, 0);
 });
 
 Deno.test("abort detaches hanging cleanup without hiding primary failure", async () => {
