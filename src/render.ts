@@ -114,15 +114,28 @@ interface RenderContext {
   readonly cleanupPolicy?: { awaitOnAbort: boolean };
   readonly onWarning?: (warning: RenderWarning) => void;
   readonly signal?: AbortSignal;
+  readonly syncBudget?: { remaining: number };
 }
 
 type ProtocolMethod = (this: unknown, ...args: unknown[]) => unknown;
+type RenderSegment = string | typeof STREAM_FLUSH;
 type ChildRenderer = (
   value: unknown,
   context: RenderContext,
-) => AsyncGenerator<string, void, void>;
+) => AsyncGenerator<RenderSegment, void, void>;
+type BufferedResult = void | Promise<void>;
 
 const NO_FAILURE: unique symbol = Symbol("no render failure");
+const ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+const BUFFERED_SYNC_BUDGET = 1_024;
+const STREAM_CHUNK_CODE_UNITS = 16 * 1_024;
+const STREAM_CHUNK_SEGMENTS = 32;
+const STREAM_READY_MICROTASKS = 24;
+const STREAM_FLUSH: unique symbol = Symbol("flush stream prefix");
+const NEXT_NOT_READY: unique symbol = Symbol("next result not ready");
+const NOT_IMMEDIATE: unique symbol = Symbol(
+  "value is not immediately renderable",
+);
 
 /**
  * Render a value to one buffered HTML string.
@@ -141,13 +154,14 @@ export async function renderToString(
   const context: RenderContext = {
     ...(options.onWarning ? { onWarning: options.onWarning } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    syncBudget: { remaining: BUFFERED_SYNC_BUDGET },
   };
   const chunks: string[] = [];
 
   try {
-    for await (const chunk of renderValue(view, context)) {
-      throwIfAborted(context.signal);
-      chunks.push(chunk);
+    const pending = renderBufferedValue(view, context, chunks);
+    if (pending) {
+      await pending;
     }
     throwIfAborted(context.signal);
     return chunks.join("");
@@ -189,6 +203,34 @@ export function renderToStream(
   let closing: Promise<void> | undefined;
   let cancelled = false;
   let settled = false;
+  let bufferedText = "";
+  let bufferedSegments = 0;
+  let pendingNext: Promise<IteratorResult<RenderSegment, void>> | undefined;
+
+  const takeBufferedText = (): string => {
+    const length = Math.min(bufferedText.length, STREAM_CHUNK_CODE_UNITS);
+    const chunk = bufferedText.slice(0, length);
+    bufferedText = bufferedText.slice(length);
+    // A remainder can only belong to the last, individually-large segment.
+    bufferedSegments = bufferedText.length === 0 ? 0 : 1;
+    return chunk;
+  };
+
+  const enqueueBufferedText = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): boolean => {
+    if (bufferedText.length === 0) {
+      bufferedSegments = 0;
+      return false;
+    }
+
+    const bytes = encoder.encode(takeBufferedText());
+    if (bytes.byteLength === 0) {
+      return false;
+    }
+    controller.enqueue(bytes);
+    return true;
+  };
 
   const closeIterator = (): Promise<void> => {
     if (!closing) {
@@ -222,17 +264,58 @@ export function renderToStream(
       }
 
       try {
-        // Empty strings and a trailing high surrogate do not produce bytes yet.
-        // Continue only until one chunk is available so the consumer controls
-        // the pace of traversal through normal stream backpressure.
         while (!cancelled) {
           throwIfAborted(context.signal);
-          const result = await iterator.next();
+
+          if (
+            bufferedText.length >= STREAM_CHUNK_CODE_UNITS ||
+            bufferedSegments >= STREAM_CHUNK_SEGMENTS
+          ) {
+            if (enqueueBufferedText(controller)) {
+              return;
+            }
+          }
+
+          const next = pendingNext ??= iterator.next();
+          let result: IteratorResult<RenderSegment, void>;
+
+          try {
+            if (bufferedText.length > 0) {
+              const ready = await pollIteratorNext(next);
+              if (ready === NEXT_NOT_READY) {
+                if (enqueueBufferedText(controller)) {
+                  return;
+                }
+                continue;
+              }
+              if (ready.ok) {
+                result = ready.result;
+              } else {
+                throw ready.error;
+              }
+            } else {
+              result = await next;
+            }
+            pendingNext = undefined;
+          } catch (error) {
+            // Bytes produced before a synchronous downstream failure remain a
+            // valid stream prefix. Surface the failure on the following pull.
+            if (enqueueBufferedText(controller)) {
+              return;
+            }
+            throw error;
+          }
+
           if (settled || cancelled) {
             return;
           }
           if (result.done) {
-            const finalBytes = encoder.finish();
+            const finalBytes = concatenateBytes(
+              encoder.encode(bufferedText),
+              encoder.finish(),
+            );
+            bufferedText = "";
+            bufferedSegments = 0;
             if (finalBytes.byteLength > 0) {
               controller.enqueue(finalBytes);
             }
@@ -242,11 +325,15 @@ export function renderToStream(
             return;
           }
 
-          const bytes = encoder.encode(result.value);
-          if (bytes.byteLength > 0) {
-            controller.enqueue(bytes);
-            return;
+          if (result.value === STREAM_FLUSH) {
+            if (enqueueBufferedText(controller)) {
+              return;
+            }
+            continue;
           }
+
+          bufferedText += result.value;
+          bufferedSegments++;
         }
       } catch (error) {
         if (settled || cancelled) {
@@ -281,10 +368,215 @@ export function renderToStream(
   }, { highWaterMark: 0 });
 }
 
+function renderBufferedValue(
+  value: unknown,
+  context: RenderContext,
+  chunks: string[],
+): BufferedResult {
+  throwIfAborted(context.signal);
+
+  const budget = context.syncBudget;
+  if (budget && budget.remaining-- <= 0) {
+    budget.remaining = BUFFERED_SYNC_BUDGET;
+    return Promise.resolve().then(() => {
+      return renderBufferedValue(value, context, chunks);
+    });
+  }
+
+  if (value === null || value === undefined || typeof value === "boolean") {
+    return;
+  }
+
+  switch (typeof value) {
+    case "string":
+      chunks.push(escapeText(value));
+      return;
+    case "number":
+    case "bigint":
+      chunks.push(String(value));
+      return;
+    case "function":
+      throw unsupportedValue("function", value);
+    case "symbol":
+      throw unsupportedValue("symbol", value);
+  }
+
+  if (isHtml(value)) {
+    return renderBufferedNode(value, context, chunks);
+  }
+
+  const thenMethod = getThenMethod(value);
+  if (thenMethod) {
+    return resolveAwaitable(value, thenMethod, context.signal).then(
+      (resolved) => renderBufferedValue(resolved, context, chunks),
+    );
+  }
+
+  const asyncIteratorMethod = getIteratorMethod(
+    value,
+    Symbol.asyncIterator,
+    "Symbol.asyncIterator",
+  );
+  if (asyncIteratorMethod) {
+    return consumeRenderedGenerator(
+      renderProtocolIterable(
+        value,
+        asyncIteratorMethod,
+        true,
+        context,
+        renderValue,
+      ),
+      context,
+      chunks,
+    );
+  }
+
+  const iteratorMethod = getIteratorMethod(
+    value,
+    Symbol.iterator,
+    "Symbol.iterator",
+  );
+  if (iteratorMethod) {
+    if (
+      Array.isArray(value) &&
+      iteratorMethod === ARRAY_ITERATOR
+    ) {
+      return renderBufferedArray(value, 0, context, chunks);
+    }
+    return consumeRenderedGenerator(
+      renderProtocolIterable(
+        value,
+        iteratorMethod,
+        false,
+        context,
+        renderValue,
+      ),
+      context,
+      chunks,
+    );
+  }
+
+  throw unsupportedValue("object", value);
+}
+
+function renderBufferedArray(
+  values: readonly unknown[],
+  startIndex: number,
+  context: RenderContext,
+  chunks: string[],
+): BufferedResult {
+  for (let index = startIndex; index < values.length; index++) {
+    const pending = renderBufferedValue(values[index], context, chunks);
+    if (pending) {
+      return pending.then(() => {
+        return renderBufferedArray(values, index + 1, context, chunks);
+      });
+    }
+  }
+}
+
+function renderBufferedNode(
+  node: HtmlNode,
+  context: RenderContext,
+  chunks: string[],
+): BufferedResult {
+  assertValidHtmlNode(node);
+
+  switch (node.nodeType) {
+    case "raw":
+      chunks.push(node.value);
+      return;
+    case "escaped":
+      return renderBufferedValue(node.value, context, chunks);
+    case "attribute":
+      emitAttributeWarning(node.name, node.value, context);
+      chunks.push(serializeAttribute(node.name, node.value));
+      return;
+    case "fragment":
+      return renderBufferedValue(node.children, context, chunks);
+    case "template":
+      return renderBufferedTemplate(node, 0, context, chunks);
+    case "component":
+      return renderBufferedComponent(node, context, chunks);
+    case "element":
+      return consumeRenderedGenerator(
+        renderElement(node, context),
+        context,
+        chunks,
+      );
+    default:
+      throw new RenderError("Received an unknown HTML instruction.");
+  }
+}
+
+function renderBufferedTemplate(
+  node: Extract<HtmlNode, { readonly nodeType: "template" }>,
+  startIndex: number,
+  context: RenderContext,
+  chunks: string[],
+): BufferedResult {
+  for (let index = startIndex; index < node.values.length; index++) {
+    chunks.push(node.strings[index]);
+    const pending = renderBufferedValue(node.values[index], context, chunks);
+    if (pending) {
+      return pending.then(() => {
+        return renderBufferedTemplate(node, index + 1, context, chunks);
+      });
+    }
+  }
+  chunks.push(node.strings[node.strings.length - 1]);
+}
+
+function renderBufferedComponent(
+  node: ComponentNode,
+  context: RenderContext,
+  chunks: string[],
+): BufferedResult {
+  const frame: ComponentFrame = {
+    name: node.component.name || "Anonymous",
+    ...(node.source ? { source: node.source } : {}),
+  };
+
+  try {
+    throwIfAborted(context.signal);
+    const pending = renderBufferedValue(
+      node.component(node.props),
+      context,
+      chunks,
+    );
+    return pending?.catch((error) => {
+      throw frameComponentError(error, frame, context.signal);
+    });
+  } catch (error) {
+    throw frameComponentError(error, frame, context.signal);
+  }
+}
+
+async function consumeRenderedGenerator(
+  generator: AsyncGenerator<RenderSegment, void, void>,
+  context: RenderContext,
+  chunks: string[],
+): Promise<void> {
+  for await (const chunk of generator) {
+    throwIfAborted(context.signal);
+    if (chunk !== STREAM_FLUSH) {
+      chunks.push(chunk);
+    }
+  }
+}
+
+function frameComponentError(
+  error: unknown,
+  frame: ComponentFrame,
+  signal: AbortSignal | undefined,
+): unknown {
+  return isAbortReason(error, signal) ? error : addComponentFrame(error, frame);
+}
+
 async function* renderValue(
   value: unknown,
   context: RenderContext,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   throwIfAborted(context.signal);
 
   if (value === null || value === undefined || typeof value === "boolean") {
@@ -356,7 +648,7 @@ async function* renderValue(
 async function* renderNode(
   node: HtmlNode,
   context: RenderContext,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   assertValidHtmlNode(node);
 
   switch (node.nodeType) {
@@ -373,13 +665,26 @@ async function* renderNode(
     case "fragment":
       yield* renderValue(node.children, context);
       return;
-    case "template":
+    case "template": {
+      let chunk = node.strings[0];
       for (let index = 0; index < node.values.length; index++) {
-        yield node.strings[index];
-        yield* renderValue(node.values[index], context);
+        const immediate = renderImmediate(node.values[index], context);
+        if (immediate === NOT_IMMEDIATE) {
+          if (chunk.length > 0) {
+            yield chunk;
+          }
+          yield* renderValue(node.values[index], context);
+          chunk = "";
+        } else {
+          chunk += immediate;
+        }
+        chunk += node.strings[index + 1];
       }
-      yield node.strings[node.strings.length - 1];
+      if (chunk.length > 0) {
+        yield chunk;
+      }
       return;
+    }
     case "component":
       yield* renderComponent(node, context);
       return;
@@ -388,6 +693,81 @@ async function* renderNode(
       return;
     default:
       throw new RenderError("Received an unknown HTML instruction.");
+  }
+}
+
+function renderImmediate(
+  value: unknown,
+  context: RenderContext,
+): string | typeof NOT_IMMEDIATE {
+  if (value === null || value === undefined || typeof value === "boolean") {
+    return "";
+  }
+
+  switch (typeof value) {
+    case "string":
+      return escapeText(value);
+    case "number":
+    case "bigint":
+      return String(value);
+    case "function":
+    case "symbol":
+      return NOT_IMMEDIATE;
+  }
+
+  if (!isHtml(value)) {
+    return NOT_IMMEDIATE;
+  }
+
+  switch (value.nodeType) {
+    case "raw":
+      try {
+        assertValidHtmlNode(value);
+        return value.value;
+      } catch {
+        return NOT_IMMEDIATE;
+      }
+    case "escaped": {
+      try {
+        assertValidHtmlNode(value);
+      } catch {
+        return NOT_IMMEDIATE;
+      }
+      const escaped = value.value;
+      if (
+        escaped !== null && escaped !== undefined &&
+        typeof escaped === "object"
+      ) {
+        return NOT_IMMEDIATE;
+      }
+      return renderImmediate(escaped, context);
+    }
+    case "attribute": {
+      // A warning callback is application code and can throw. Keep it on the
+      // normal traversal path so a preceding prefix is observable first and
+      // so fallback can never invoke the callback twice.
+      if (context.onWarning) {
+        return NOT_IMMEDIATE;
+      }
+      try {
+        assertValidHtmlNode(value);
+        const attributeValue = value.value;
+        if (
+          typeof attributeValue === "object" ||
+          typeof attributeValue === "function" ||
+          typeof attributeValue === "symbol"
+        ) {
+          return NOT_IMMEDIATE;
+        }
+        return serializeAttribute(value.name, attributeValue);
+      } catch {
+        // Serialization is pure for primitive values. Let normal traversal
+        // reproduce the diagnostic after any preceding template prefix.
+        return NOT_IMMEDIATE;
+      }
+    }
+    default:
+      return NOT_IMMEDIATE;
   }
 }
 
@@ -504,7 +884,7 @@ function malformedInstruction(nodeType: string): RenderError {
 async function* renderComponent(
   node: ComponentNode,
   context: RenderContext,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   const frame: ComponentFrame = {
     name: node.component.name || "Anonymous",
     ...(node.source ? { source: node.source } : {}),
@@ -524,7 +904,7 @@ async function* renderComponent(
 async function* renderElement(
   node: ElementNode,
   context: RenderContext,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   const tagName = node.tagName;
   const children = node.props.children;
   const frame: ElementFrame = {
@@ -591,7 +971,7 @@ async function* renderRawTextValue(
   value: unknown,
   context: RenderContext,
   tagName: string,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   throwIfAborted(context.signal);
 
   if (value === null || value === undefined || typeof value === "boolean") {
@@ -668,7 +1048,7 @@ async function* renderRawTextComponent(
   node: ComponentNode,
   context: RenderContext,
   tagName: string,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   const frame: ComponentFrame = {
     name: node.component.name || "Anonymous",
     ...(node.source ? { source: node.source } : {}),
@@ -691,7 +1071,7 @@ async function* renderProtocolIterable(
   isAsync: boolean,
   context: RenderContext,
   renderChild: ChildRenderer,
-): AsyncGenerator<string, void, void> {
+): AsyncGenerator<RenderSegment, void, void> {
   let iterator: object | undefined;
   let completed = false;
   let primaryFailure: unknown | typeof NO_FAILURE = NO_FAILURE;
@@ -720,6 +1100,11 @@ async function* renderProtocolIterable(
 
       yield* renderChild(step.value, context);
       throwIfAborted(context.signal);
+      if (isAsync) {
+        // Do not request another async-iterator item until the consumer has
+        // received the complete prefix produced by the current one.
+        yield STREAM_FLUSH;
+      }
     }
   } catch (error) {
     primaryFailure = error;
@@ -990,6 +1375,56 @@ function listenForAbort(
 
   source.addEventListener("abort", listener, { once: true });
   return () => source.removeEventListener("abort", listener);
+}
+
+async function pollIteratorNext(
+  next: Promise<IteratorResult<RenderSegment, void>>,
+): Promise<
+  | { readonly ok: true; readonly result: IteratorResult<RenderSegment, void> }
+  | { readonly ok: false; readonly error: unknown }
+  | typeof NEXT_NOT_READY
+> {
+  let outcome:
+    | {
+      readonly ok: true;
+      readonly result: IteratorResult<RenderSegment, void>;
+    }
+    | { readonly ok: false; readonly error: unknown }
+    | undefined;
+
+  void next.then(
+    (result) => {
+      outcome = { ok: true, result };
+    },
+    (error) => {
+      outcome = { ok: false, error };
+    },
+  );
+
+  for (let turn = 0; turn < STREAM_READY_MICROTASKS; turn++) {
+    await Promise.resolve();
+    if (outcome) {
+      return outcome;
+    }
+  }
+  return NEXT_NOT_READY;
+}
+
+function concatenateBytes(
+  first: Uint8Array,
+  second: Uint8Array,
+): Uint8Array {
+  if (first.byteLength === 0) {
+    return second;
+  }
+  if (second.byteLength === 0) {
+    return first;
+  }
+
+  const bytes = new Uint8Array(first.byteLength + second.byteLength);
+  bytes.set(first);
+  bytes.set(second, first.byteLength);
+  return bytes;
 }
 
 class StreamingUtf8Encoder {

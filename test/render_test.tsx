@@ -302,6 +302,73 @@ Deno.test("void children fail before attributes or stream output", async () => {
   );
 });
 
+Deno.test("buffered fast traversal observes render side effects once", async () => {
+  let componentCalls = 0;
+  let iteratorGetterCalls = 0;
+  let iteratorFactoryCalls = 0;
+  let warningCalls = 0;
+  const dangerousHref = "javascript:alert(1)";
+
+  const values: Iterable<Renderable> = {
+    get [Symbol.iterator]() {
+      iteratorGetterCalls++;
+      return function () {
+        iteratorFactoryCalls++;
+        let yielded = false;
+        return {
+          next(): IteratorResult<Renderable> {
+            if (yielded) {
+              return { done: true, value: undefined };
+            }
+            yielded = true;
+            return { done: false, value: "<item>" };
+          },
+        };
+      };
+    },
+  };
+
+  async function Deferred() {
+    componentCalls++;
+    await Promise.resolve();
+    return <a href={dangerousHref}>{values}</a>;
+  }
+
+  assertEquals(
+    await renderToString(<Deferred />, {
+      onWarning() {
+        warningCalls++;
+      },
+    }),
+    `<a href="javascript:alert(1)">&lt;item&gt;</a>`,
+  );
+  assertEquals(componentCalls, 1);
+  assertEquals(iteratorGetterCalls, 1);
+  assertEquals(iteratorFactoryCalls, 1);
+  assertEquals(warningCalls, 1);
+});
+
+Deno.test("buffered fast traversal yields cooperatively to cancellation", async () => {
+  const controller = new AbortController();
+  const reason = new DOMException("Request ended", "AbortError");
+  const total = 10_000;
+  let componentCalls = 0;
+
+  function Item() {
+    componentCalls++;
+    return "item";
+  }
+
+  const items = Array.from({ length: total }, () => <Item />);
+  queueMicrotask(() => controller.abort(reason));
+  const error = await renderToString(items, { signal: controller.signal })
+    .catch((failure) => failure);
+
+  assertEquals(error, reason);
+  assert(componentCalls > 0);
+  assert(componentCalls < total);
+});
+
 Deno.test("an abort signal stops buffered rendering", async () => {
   const controller = new AbortController();
   controller.abort(new DOMException("Request ended", "AbortError"));
