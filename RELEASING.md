@@ -29,7 +29,9 @@ uses protected releases.
    same machine before and after the change and record the comparison in the
    pull request.
 5. Merge the release commit only after the minimum-version and latest-stable CI
-   jobs pass.
+   jobs pass. The required published-package consumer job separately runs the
+   networked `0.1` interoperability fixture; normal `deno task check` remains
+   reproducible from the locked dependency cache.
 6. Review the version's upgrade notes. In particular, confirm every documented
    consumer configuration keeps `script` and `style` in
    `jsxPrecompileSkipElements`; that setting is part of the raw-text security

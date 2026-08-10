@@ -1,7 +1,6 @@
 {
   "workspace": [],
   "imports": {
-    "@current/html": "../mod.ts",
     "@std/assert": "jsr:@std/assert@^1.0.19"
   }
 }

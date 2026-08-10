@@ -249,6 +249,19 @@ Deno.test("the v1 protocol composes across independent copies", async () => {
   );
 });
 
+Deno.test("the published 0.1 raw instruction shape stays readable", async () => {
+  const legacyRaw = Object.freeze({
+    [Symbol.for("@bastianplsfix/html.node")]: true,
+    nodeType: "raw",
+    value: "<i>legacy runtime instruction</i>",
+  }) as unknown as Renderable;
+
+  assertEquals(
+    await renderToString(legacyRaw),
+    "<i>legacy runtime instruction</i>",
+  );
+});
+
 Deno.test("malformed branded instructions fail before trusted output", async () => {
   function Component() {
     return "safe";

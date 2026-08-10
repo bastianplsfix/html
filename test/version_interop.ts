@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { type Renderable, renderToString } from "@current/html";
+import { type Renderable, renderToString } from "../mod.ts";
 
 function legacyUrl(path: string): string {
   return [
@@ -28,6 +28,8 @@ Deno.test("published 0.1 instructions use the version-one protocol", async () =>
     children: ["<escaped>", legacyUnsafeHTML("<b>trusted library</b>")],
   });
 
+  // Published 0.1 used a private unique-symbol type brand. Its instructions
+  // remain runtime-readable, but crossing that migration boundary is explicit.
   assertEquals(
     await renderToString(legacyView as unknown as Renderable),
     '<section class="legacy">&lt;escaped&gt;<b>trusted library</b></section>',

@@ -235,11 +235,13 @@ lifecycle methods, or a scheduler.
 
 `Html` participates in a versioned runtime protocol. Protocol version one uses a
 stable global brand so trusted component libraries and separately resolved
-compatible package copies—including `0.1`—can exchange instructions. Every
-instruction is still validated before traversal; unknown protocol versions and
-malformed shapes fail closed. The brand distinguishes framework instructions
-from ordinary application values, but does not attempt to sandbox hostile code
-that already executes in the server process.
+compatible `0.2` package copies can exchange instructions at both the type and
+runtime levels. Published `0.1` instructions remain runtime-readable for
+migration, but their private unique-symbol TypeScript brand requires an explicit
+cast at that boundary. Every instruction is still validated before traversal;
+unknown protocol versions and malformed shapes fail closed. The brand
+distinguishes framework instructions from ordinary application values, but does
+not attempt to sandbox hostile code that already executes in the server process.
 
 ## Rendering semantics
 

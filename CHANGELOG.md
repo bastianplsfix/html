@@ -66,9 +66,10 @@ uses semantic versioning while its public API is still evolving below `1.0.0`.
 - A boolean `false` for an enumerated boolean-like attribute now emits the
   meaningful `"false"` token rather than omitting the attribute. Native presence
   attributes retain bare-`true`/omitted-`false` behavior.
-- Trusted component libraries can pass `Html` between separate `0.1` and
-  compatible `0.2` package copies through protocol version one. The protocol is
-  an interoperability contract, not a sandbox for hostile application code.
+- Compatible `0.2` package copies can exchange `Html` through protocol version
+  one. Published `0.1` instructions remain runtime-readable for migration, but
+  their private unique-symbol TypeScript type requires an explicit cast at that
+  boundary. The protocol is not a sandbox for hostile application code.
 
 ## 0.1.0 — 2026-08-09
 

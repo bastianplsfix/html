@@ -97,6 +97,9 @@ protocol, so trusted component libraries can return `Html` even when Deno
 resolves a separate compatible package copy. Unknown protocols and malformed
 instructions are rejected. The brand prevents accidental value confusion; it is
 not a security boundary against hostile code already executing in the process.
+Published `0.1` instructions remain runtime-readable for migration, but their
+private unique-symbol TypeScript brand is not assignable to the `0.2` type;
+upgrade dependent libraries together or use an explicit cast at that boundary.
 
 URL escaping is intentionally separate from URL policy. Both renderers can
 report dangerous dynamic schemes without rewriting output:
