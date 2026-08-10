@@ -12,6 +12,10 @@ type RuntimeModule = {
   ) => unknown;
 };
 
+type DevelopmentRuntimeModule = RuntimeModule & {
+  readonly jsxDEV: RuntimeModule["jsx"];
+};
+
 type ResponseModule = {
   readonly html: (view: unknown) => Promise<Response>;
 };
@@ -26,15 +30,24 @@ const primary = await import(packageSpecifier) as PrimaryModule;
 const runtime = await import(
   `${packageSpecifier}/jsx-runtime`
 ) as RuntimeModule;
+const developmentRuntime = await import(
+  `${packageSpecifier}/jsx-dev-runtime`
+) as DevelopmentRuntimeModule;
 const responseAdapter = await import(
   `${packageSpecifier}/response`
 ) as ResponseModule;
 
 const view = runtime.jsx("p", { children: "<published>" });
+const developmentView = developmentRuntime.jsxDEV("p", {
+  children: "<published>",
+});
 const expected = "<p>&lt;published&gt;</p>";
 const buffered = await primary.renderToString(view);
 if (buffered !== expected) {
   throw new Error(`Published buffered output was ${JSON.stringify(buffered)}.`);
+}
+if (await primary.renderToString(developmentView) !== expected) {
+  throw new Error("Published development JSX runtime output did not match.");
 }
 
 const streamed = await new Response(primary.renderToStream(view)).text();

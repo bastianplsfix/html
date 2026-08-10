@@ -8,6 +8,9 @@ Deno.test("release versions follow SemVer 2.0", () => {
       "1.0.0-alpha",
       "1.0.0-alpha.1",
       "1.0.0-0.3.7",
+      "1.0.0-1alpha",
+      "1.0.0-01a",
+      "1.0.0-1-",
       "1.0.0+build.5",
     ]
   ) {

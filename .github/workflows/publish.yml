@@ -30,6 +30,10 @@ jobs:
 
       - name: Verify tagged commit is on main
         run: |
+          if ! git cat-file -e "$GITHUB_REF_NAME^{tag}" 2>/dev/null; then
+            echo "Release tags must be annotated or signed" >&2
+            exit 1
+          fi
           git fetch --no-tags origin main
           release_commit=$(git rev-list -n 1 "$GITHUB_REF_NAME")
           if ! git merge-base --is-ancestor "$release_commit" origin/main; then

@@ -82,7 +82,7 @@ async function readReleaseMetadata(
 /** Return whether a value is a complete SemVer 2.0 version. */
 export function isSemanticVersion(value: string): boolean {
   const numeric = "(?:0|[1-9]\\d*)";
-  const identifier = "(?:0|[1-9]\\d*|[A-Za-z-][0-9A-Za-z-]*)";
+  const identifier = "(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)";
   const buildIdentifier = "[0-9A-Za-z-]+";
   return new RegExp(
     `^${numeric}\\.${numeric}\\.${numeric}` +
