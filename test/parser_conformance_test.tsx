@@ -15,8 +15,12 @@ import { jsx } from "../jsx-runtime.ts";
 
 // parse5 is an exact-version, test-only WHATWG HTML parser. It validates how
 // renderer output is interpreted without becoming a package/runtime dependency.
-// deno-lint-ignore no-import-prefix -- Keep the test parser pinned and out of package imports.
-import { parse } from "npm:parse5@8.0.1";
+// A computed import keeps it pinned and out of package imports while remaining
+// lint-compatible with the project's Deno 2.1 compatibility floor.
+const parse5Specifier: string = "npm:parse5@8.0.1";
+const { parse } = await import(parse5Specifier) as {
+  readonly parse: (source: string) => unknown;
+};
 
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
