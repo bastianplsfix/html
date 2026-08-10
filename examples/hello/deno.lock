@@ -1,5 +1,5 @@
 {
-  "version": "5",
+  "version": "4",
   "specifiers": {
     "jsr:@bastianplsfix/html@0.1": "0.1.0",
     "jsr:@std/assert@^1.0.19": "1.0.19",
